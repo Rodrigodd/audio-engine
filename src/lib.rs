@@ -5,6 +5,19 @@
 //! ## Supported formats
 //! - ogg
 //! - wav
+//!
+//! ## Example
+//!
+//! ```rust
+//! # fn main() -> Result<(), &'static str> {
+//! # let my_wav_sound = std::io::Cursor::new(vec![]);
+//! use audio_engine::{AudioEngine, WavDecoder};
+//! let audio_engine = AudioEngine::new()?;
+//! let sound = audio_engine.new_sound(WavDecoder::new(my_wav_sound))?;
+//! sound.play();
+//! # Ok(())
+//! # }
+//! ```
 
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -16,9 +29,9 @@ mod ogg;
 mod wav;
 
 #[cfg(not(target_arch = "wasm32"))]
-mod audio_engine;
+mod cpal_audio_engine;
 #[cfg(not(target_arch = "wasm32"))]
-pub use audio_engine::AudioEngine;
+pub use cpal_audio_engine::AudioEngine;
 
 #[cfg(target_arch = "wasm32")]
 mod web_audio_engine;

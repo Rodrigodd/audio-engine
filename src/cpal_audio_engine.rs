@@ -79,6 +79,13 @@ impl AudioEngine {
     }
 
     /// Create a new Sound.
+    ///
+    /// Return a `Err` if the number of channels doesn't match the output number of channels. If
+    /// the ouput number of channels is 1, or the number of channels of `source` is 1, `source`
+    /// will be automatic wrapped in a [`ChannelConverter`].
+    ///
+    /// If the `sample_rate` of `source` mismatch the output `sample_rate`, `source` will be
+    /// wrapped in a [`SampleRateConverter`].
     pub fn new_sound<T: SoundSource + Send + 'static>(
         &self,
         source: T,
