@@ -1,8 +1,14 @@
 [package]
 name = "audio-engine"
+description = "A audio playback library"
 version = "0.1.0"
 authors = ["Rodrigo Batista de Moraes <rodrigobatsmoraes@hotmail.com>"]
 edition = "2018"
+repository = "https://github.com/Rodrigodd/audio-engine"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["audio", "playback", "wav", "ogg"]
+categories = ["multimedia::audio"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
