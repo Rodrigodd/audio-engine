@@ -3,12 +3,14 @@ use std::io::{Read, Seek};
 
 use crate::SoundSource;
 
+/// A SourceSource, from wav encoded sound data.
 pub struct WavDecoder<T: Seek + Read + Send + 'static> {
     reader: WavReader<T>,
     channels: u16,
     sample_rate: u32,
 }
 impl<T: Seek + Read + Send + 'static> WavDecoder<T> {
+    /// Create a new WavDecoder from the given .wav data.
     pub fn new(data: T) -> Self {
         let reader = WavReader::new(data).unwrap();
         Self {

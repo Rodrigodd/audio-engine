@@ -1,3 +1,11 @@
+#![warn(missing_docs)]
+
+//! Audio Engine is a cross-platform crate for audio playback, including Webassembly.
+//!
+//! ## Supported formats
+//! - ogg
+//! - wav
+
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, Mutex,
@@ -9,19 +17,17 @@ mod wav;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod audio_engine;
-
-#[cfg(target_arch = "wasm32")]
-mod web_audio_engine;
-
-use cpal::SampleRate;
-pub use ogg::OggDecoder;
-pub use wav::WavDecoder;
-
 #[cfg(not(target_arch = "wasm32"))]
 pub use audio_engine::AudioEngine;
 
 #[cfg(target_arch = "wasm32")]
+mod web_audio_engine;
+#[cfg(target_arch = "wasm32")]
 pub use web_audio_engine::AudioEngine;
+
+use cpal::SampleRate;
+pub use ogg::OggDecoder;
+pub use wav::WavDecoder;
 
 type SoundId = u64;
 
@@ -37,31 +43,44 @@ pub struct Sound {
     id: SoundId,
 }
 impl Sound {
+    /// Starts or continue to play the sound.
+    ///
     /// If the sound was paused or stop, it will start playing again.
     /// Otherwise, does nothing.
     pub fn play(&mut self) {
         self.mixer.lock().unwrap().play(self.id);
     }
+
+    /// Pause the sound.
+    ///
     /// If the sound is playing, it will pause. If play is called,
     /// this sound will continue from where it was before pause.
     /// If the sound is not playing, does nothing.
     pub fn pause(&mut self) {
         self.mixer.lock().unwrap().pause(self.id);
     }
+
+    /// Stop the sound.
+    ///
     /// If the sound is playing, it will pause and reset the song. When play is called,
     /// this sound will start from the begging.
     /// Even if the sound is not playing, it will reset the sound to the start.
     pub fn stop(&mut self) {
         self.mixer.lock().unwrap().stop(self.id);
     }
-    /// This reset the sound to the start, the sound being playing or not.
+
+    /// Reset the sound to the start.
+    ///
+    /// The behaviour is the same being the sound playing or not.
     pub fn reset(&mut self) {
         self.mixer.lock().unwrap().reset(self.id);
     }
-    /// Set the volume of the sound
+
+    /// Set the volume of the sound.
     pub fn set_volume(&mut self, volume: f32) {
         self.mixer.lock().unwrap().set_volume(self.id, volume);
     }
+
     /// Set if the sound will repeat even time it reach the end.
     pub fn set_loop(&mut self, looping: bool) {
         self.mixer.lock().unwrap().set_loop(self.id, looping);
@@ -73,6 +92,9 @@ impl Drop for Sound {
     }
 }
 
+/// A source of sound samples.
+///
+/// Sound samples of each channel must be interleaved.
 pub trait SoundSource {
     /// Return the number of channels
     fn channels(&self) -> u16;
@@ -83,9 +105,12 @@ pub trait SoundSource {
     /// Start the sound from the begining
     fn reset(&mut self);
 
-    /// Write the samples to the buffer. Return how much has write.
-    /// If it return a value less thand the length of the buffer,
-    /// this indicate that the sound end.
+    /// Write the samples to the buffer.
+    ///
+    /// Return how much has write. If it return a value less thand the length of the buffer, this
+    /// indicate that the sound ended.
+    ///
+    /// The buffer length will always be a multiple of [`self.channels`](SoundSource::channels).
     fn write_samples(&mut self, buffer: &mut [i16]) -> usize;
 }
 
@@ -108,6 +133,7 @@ impl SoundInner {
     }
 }
 
+/// Keep track of each Sound, and mix they output together.
 struct Mixer {
     sounds: Vec<SoundInner>,
     playing: usize,
@@ -181,7 +207,7 @@ impl Mixer {
         }
     }
 
-    /// Set the volume of the sound
+    /// Set the volume of the sound.
     fn set_volume(&mut self, id: SoundId, volume: f32) {
         for i in (0..self.sounds.len()).rev() {
             if self.sounds[i].id == id {

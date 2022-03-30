@@ -5,6 +5,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use super::{Mixer, Sound, SoundSource};
 use crate::converter::{ChannelConverter, SampleRateConverter};
 
+/// The main struct of the crate.
 pub struct AudioEngine {
     mixer: Arc<Mutex<Mixer>>,
     channels: u16,
@@ -12,6 +13,7 @@ pub struct AudioEngine {
     _stream: cpal::platform::Stream,
 }
 impl AudioEngine {
+    /// Tries to create a new AudioEngine.
     pub fn new() -> Result<Self, &'static str> {
         let host = cpal::default_host();
         let device = host
@@ -63,10 +65,12 @@ impl AudioEngine {
         })
     }
 
+    /// The sample rate that is currently being output to the device.
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
 
+    /// Create a new Sound.
     pub fn new_sound<T: SoundSource + Send + 'static>(
         &self,
         source: T,

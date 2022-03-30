@@ -4,12 +4,14 @@ use std::vec::IntoIter;
 
 use crate::SoundSource;
 
+/// A SourceSource, from ogg encoded sound data.
 pub struct OggDecoder<T: Seek + Read + Send + 'static> {
     reader: Option<OggStreamReader<T>>,
     buffer: IntoIter<i16>,
     done: bool,
 }
 impl<T: Seek + Read + Send + 'static> OggDecoder<T> {
+    /// Create a new OggDecoder from the given .ogg data.
     pub fn new(data: T) -> Self {
         let mut reader = OggStreamReader::new(data).unwrap();
         // The first packed is always empty
