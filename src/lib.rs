@@ -25,7 +25,6 @@ mod web_audio_engine;
 #[cfg(target_arch = "wasm32")]
 pub use web_audio_engine::AudioEngine;
 
-use cpal::SampleRate;
 pub use ogg::OggDecoder;
 pub use wav::WavDecoder;
 
@@ -35,6 +34,10 @@ fn next_id() -> SoundId {
     static GLOBAL_COUNT: AtomicU64 = AtomicU64::new(0);
     GLOBAL_COUNT.fetch_add(1, Ordering::Relaxed)
 }
+
+/// The number of samples processed per second for a single channel of audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SampleRate(pub u32);
 
 /// Represents a sound in the AudioEngine. If this is dropped, the sound will continue to play
 /// until it ends.

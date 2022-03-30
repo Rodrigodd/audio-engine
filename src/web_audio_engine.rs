@@ -1,11 +1,15 @@
-use std::sync::{Arc, Mutex};
+//! This contains a version of AudioEngine that don't depends on cpal, and uses the native web
+//! AudioContext. This is single thread and must be frequentily updated.
+//!
+//! I made this because cpal doesn't supported wasm, but I think this has change. Also I don't knew
+//! of Web Workers when I write this, so I don't took them in account.
 
-// use wasm_bindgen::prelude::*;
-use web_sys::console;
+use std::sync::{Arc, Mutex};
 
 use super::{Mixer, Sound, SoundSource};
 use crate::converter::{ChannelConverter, SampleRateConverter};
 
+/// The main struct of the crate.
 pub struct AudioEngine {
     ctx: web_sys::AudioContext,
     mixer: Arc<Mutex<Mixer>>,
@@ -14,6 +18,7 @@ pub struct AudioEngine {
     next_time: f64,
 }
 impl AudioEngine {
+    /// Tries to create a new AudioEngine.
     pub fn new() -> Result<Self, &'static str> {
         let ctx = web_sys::AudioContext::new().map_err(|_| "Failed to create AudioContext")?;
         let sample_rate = ctx.sample_rate() as u32;
@@ -23,11 +28,13 @@ impl AudioEngine {
             channels: 2,
             next_time: ctx.current_time() + 0.01,
             ctx,
-            mixer: Arc::new(Mutex::new(Mixer::new(2, sample_rate))),
+            mixer: Arc::new(Mutex::new(Mixer::new(2, super::SampleRate(sample_rate)))),
         })
     }
 
-    /// Only wasm function. Call this each 20ms to keep output sound correctly.
+    /// Call this every 20ms to keep outputing sound correctly.
+    ///
+    /// This genrate 20ms of audio per call, and buffers up to 50 ms.
     pub fn update(&mut self) {
         let curr_time = self.ctx.current_time();
         if self.next_time > curr_time + 0.05 {
@@ -64,6 +71,12 @@ impl AudioEngine {
         self.next_time += 0.02;
     }
 
+    /// The sample rate that is currently being output to the device.
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    /// Create a new Sound.
     pub fn new_sound<T: SoundSource + Send + 'static>(
         &self,
         source: T,
