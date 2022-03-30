@@ -1,5 +1,5 @@
-use std::io::{ Seek, Read };
 use hound::WavReader;
+use std::io::{Read, Seek};
 
 use crate::SoundSource;
 
@@ -31,6 +31,7 @@ impl<T: Seek + Read + Send + 'static> SoundSource for WavDecoder<T> {
         self.sample_rate
     }
 
+    #[allow(clippy::needless_range_loop)]
     fn write_samples(&mut self, buffer: &mut [i16]) -> usize {
         let mut samples = self.reader.samples::<i16>();
         for i in 0..buffer.len() {

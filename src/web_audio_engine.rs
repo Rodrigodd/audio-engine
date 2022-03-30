@@ -31,7 +31,6 @@ impl AudioEngine {
     pub fn update(&mut self) {
         let curr_time = self.ctx.current_time();
         if self.next_time > curr_time + 0.05 {
-            console::log_1(&"SKIP AUDIO UPDATE".into());
             return;
         }
         if self.next_time < curr_time {

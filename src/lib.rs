@@ -1,9 +1,11 @@
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex,
+};
 
-use std::sync::{ Arc, Mutex, atomic::{ AtomicU64, Ordering } };
-
+pub mod converter;
 mod ogg;
 mod wav;
-mod converter;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod audio_engine;
@@ -11,6 +13,7 @@ mod audio_engine;
 #[cfg(target_arch = "wasm32")]
 mod web_audio_engine;
 
+use cpal::SampleRate;
 pub use ogg::OggDecoder;
 pub use wav::WavDecoder;
 
@@ -27,27 +30,39 @@ fn next_id() -> SoundId {
     GLOBAL_COUNT.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Represents a sound in the AudioEngine. If this is dropped, the sound will continue to play
+/// until it ends.
 pub struct Sound {
     mixer: Arc<Mutex<Mixer>>,
     id: SoundId,
 }
 impl Sound {
+    /// If the sound was paused or stop, it will start playing again.
+    /// Otherwise, does nothing.
     pub fn play(&mut self) {
         self.mixer.lock().unwrap().play(self.id);
     }
+    /// If the sound is playing, it will pause. If play is called,
+    /// this sound will continue from where it was before pause.
+    /// If the sound is not playing, does nothing.
     pub fn pause(&mut self) {
         self.mixer.lock().unwrap().pause(self.id);
     }
+    /// If the sound is playing, it will pause and reset the song. When play is called,
+    /// this sound will start from the begging.
+    /// Even if the sound is not playing, it will reset the sound to the start.
     pub fn stop(&mut self) {
         self.mixer.lock().unwrap().stop(self.id);
     }
+    /// This reset the sound to the start, the sound being playing or not.
     pub fn reset(&mut self) {
         self.mixer.lock().unwrap().reset(self.id);
     }
+    /// Set the volume of the sound
     pub fn set_volume(&mut self, volume: f32) {
         self.mixer.lock().unwrap().set_volume(self.id, volume);
     }
-
+    /// Set if the sound will repeat even time it reach the end.
     pub fn set_loop(&mut self, looping: bool) {
         self.mixer.lock().unwrap().set_loop(self.id, looping);
     }
@@ -100,12 +115,12 @@ struct Mixer {
     sample_rate: u32,
 }
 impl Mixer {
-    fn new(channels: u16, sample_rate: u32) -> Self {
+    fn new(channels: u16, sample_rate: SampleRate) -> Self {
         Self {
             sounds: vec![],
             playing: 0,
             channels,
-            sample_rate,
+            sample_rate: sample_rate.0,
         }
     }
     fn add_sound(&mut self, sound: Box<dyn SoundSource + Send>) -> SoundId {
@@ -115,6 +130,8 @@ impl Mixer {
         id
     }
 
+    /// If the sound was paused or stop, it will start playing again.
+    /// Otherwise, does nothing.
     fn play(&mut self, id: SoundId) {
         for i in (self.playing..self.sounds.len()).rev() {
             if self.sounds[i].id == id {
@@ -125,6 +142,9 @@ impl Mixer {
         }
     }
 
+    /// If the sound is playing, it will pause. If play is called,
+    /// this sound will continue from where it was before pause.
+    /// If the sound is not playing, does nothing.
     fn pause(&mut self, id: SoundId) {
         for i in (0..self.playing).rev() {
             if self.sounds[i].id == id {
@@ -135,6 +155,9 @@ impl Mixer {
         }
     }
 
+    /// If the sound is playing, it will pause and reset the song. When play is called,
+    /// this sound will start from the begging.
+    /// Even if the sound is not playing, it will reset the sound to the start.
     fn stop(&mut self, id: SoundId) {
         for i in (0..self.sounds.len()).rev() {
             if self.sounds[i].id == id {
@@ -148,17 +171,17 @@ impl Mixer {
         }
     }
 
+    /// This reset the sound to the start, the sound being playing or not.
     fn reset(&mut self, id: SoundId) {
         for i in (0..self.sounds.len()).rev() {
             if self.sounds[i].id == id {
-                // self.playing -= 1;
-                // self.sounds.swap(self.playing, i);
                 self.sounds[i].data.reset();
                 break;
             }
         }
     }
 
+    /// Set the volume of the sound
     fn set_volume(&mut self, id: SoundId, volume: f32) {
         for i in (0..self.sounds.len()).rev() {
             if self.sounds[i].id == id {
@@ -168,6 +191,7 @@ impl Mixer {
         }
     }
 
+    /// Set if the sound will repeat even time it reach the end.
     fn set_loop(&mut self, id: SoundId, looping: bool) {
         for i in (0..self.sounds.len()).rev() {
             if self.sounds[i].id == id {
@@ -177,6 +201,7 @@ impl Mixer {
         }
     }
 
+    /// Mark the sound to be dropped after it reach the end.
     fn drop_sound(&mut self, id: SoundId) {
         for i in (0..self.sounds.len()).rev() {
             if self.sounds[i].id == id {
@@ -190,13 +215,13 @@ impl SoundSource for Mixer {
     fn channels(&self) -> u16 {
         self.channels
     }
-    
+
     fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
 
     fn reset(&mut self) {}
-    
+
     fn write_samples(&mut self, buffer: &mut [i16]) -> usize {
         if self.playing == 0 {
             for b in buffer.iter_mut() {
@@ -212,24 +237,22 @@ impl SoundSource for Mixer {
             loop {
                 len += self.sounds[i].data.write_samples(&mut buf[len..]);
                 if len < buffer.len() {
+                    self.sounds[i].data.reset();
                     if self.sounds[i].looping {
-                        self.sounds[i].data.reset();
                         continue;
-                    } else {
-                        break;
                     }
-                } else {
-                    break;
                 }
+                break;
             }
 
-            if self.sounds[0].volume == 1.0 {
+            if (self.sounds[0].volume - 1.0).abs() < 1.0 / i16::max_value() as f32 {
                 for i in 0..len {
                     buffer[i] = buffer[i].saturating_add(buf[i]);
                 }
             } else {
                 for i in 0..len {
-                    buffer[i] = buffer[i].saturating_add((buf[i] as f32 * self.sounds[0].volume) as i16);
+                    buffer[i] =
+                        buffer[i].saturating_add((buf[i] as f32 * self.sounds[0].volume) as i16);
                 }
             }
 
