@@ -13,7 +13,7 @@
 //! # let my_wav_sound = std::io::Cursor::new(vec![]);
 //! use audio_engine::{AudioEngine, WavDecoder};
 //! let audio_engine = AudioEngine::new()?;
-//! let sound = audio_engine.new_sound(WavDecoder::new(my_wav_sound))?;
+//! let mut sound = audio_engine.new_sound(WavDecoder::new(my_wav_sound))?;
 //! sound.play();
 //! # Ok(())
 //! # }
