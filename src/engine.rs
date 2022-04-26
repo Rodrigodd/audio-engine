@@ -30,8 +30,10 @@ impl AudioEngine {
         let config = supported_configs_range
             .next()
             .ok_or("no supported format?!")?
-            .with_max_sample_rate()
-            .config();
+            .with_max_sample_rate();
+
+        let sample_format = config.sample_format();
+        let config = config.config();
 
         let mixer = Arc::new(Mutex::new(Mixer::new(
             config.channels,
@@ -39,25 +41,11 @@ impl AudioEngine {
         )));
 
         let stream = {
-            let mixer = mixer.clone();
-            device
-                .build_output_stream(
-                    &config,
-                    move |buffer, _| {
-                        let mut buf = vec![0; buffer.len()];
-                        mixer.lock().unwrap().write_samples(&mut buf);
-                        for i in 0..buffer.len() {
-                            buffer[i] = buf[i] as f32 / i16::max_value() as f32;
-                        }
-                    },
-                    move |err| match err {
-                        cpal::StreamError::DeviceNotAvailable => {
-                            todo!("handle device disconnection")
-                        }
-                        cpal::StreamError::BackendSpecific { err } => panic!("{}", err),
-                    },
-                )
-                .unwrap()
+            match sample_format {
+                cpal::SampleFormat::I16 => stream::<i16>(&mixer, device, config),
+                cpal::SampleFormat::U16 => stream::<i16>(&mixer, device, config),
+                cpal::SampleFormat::F32 => stream::<f32>(&mixer, device, config),
+            }
         };
         stream.play().unwrap();
 
@@ -73,9 +61,14 @@ impl AudioEngine {
         })
     }
 
-    /// The sample rate that is currently being output to the device.
+    /// The sample rate that is currently being outputed to the device.
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
+    }
+
+    /// The number of channels that is currently being outputed to the device.
+    pub fn channels(&self) -> u16 {
+        self.channels
     }
 
     /// Create a new Sound.
@@ -93,6 +86,11 @@ impl AudioEngine {
         let sound: Box<dyn SoundSource + Send> = if source.sample_rate() != self.sample_rate {
             if source.channels() == self.channels {
                 Box::new(SampleRateConverter::new(source, self.sample_rate))
+            } else if self.channels == 1 {
+                Box::new(ChannelConverter::new(
+                    SampleRateConverter::new(source, self.sample_rate),
+                    self.channels,
+                ))
             } else if source.channels() == 1 {
                 Box::new(ChannelConverter::new(
                     SampleRateConverter::new(source, self.sample_rate),
@@ -103,6 +101,8 @@ impl AudioEngine {
             }
         } else if source.channels() == self.channels {
             Box::new(source)
+        } else if self.channels == 1 {
+            Box::new(ChannelConverter::new(source, self.channels))
         } else if source.channels() == 1 {
             Box::new(ChannelConverter::new(source, self.channels))
         } else {
@@ -115,4 +115,30 @@ impl AudioEngine {
             id,
         })
     }
+}
+
+fn stream<T: cpal::Sample>(
+    mixer: &Arc<Mutex<Mixer>>,
+    device: cpal::Device,
+    config: cpal::StreamConfig,
+) -> cpal::Stream {
+    let mixer = mixer.clone();
+    device
+        .build_output_stream(
+            &config,
+            move |buffer: &mut [T], _| {
+                let mut buf = vec![0; buffer.len()];
+                mixer.lock().unwrap().write_samples(&mut buf);
+                for i in 0..buffer.len() {
+                    buffer[i] = T::from(&buf[i]);
+                }
+            },
+            move |err| match err {
+                cpal::StreamError::DeviceNotAvailable => {
+                    todo!("handle device disconnection")
+                }
+                cpal::StreamError::BackendSpecific { err } => panic!("{}", err),
+            },
+        )
+        .unwrap()
 }

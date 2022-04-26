@@ -8,7 +8,7 @@
 //!
 //! ## Example
 //!
-//! ```rust
+//! ```no_run
 //! # fn main() -> Result<(), &'static str> {
 //! # let my_wav_sound = std::io::Cursor::new(vec![]);
 //! use audio_engine::{AudioEngine, WavDecoder};
@@ -28,15 +28,8 @@ pub mod converter;
 mod ogg;
 mod wav;
 
-#[cfg(not(target_arch = "wasm32"))]
-mod cpal_audio_engine;
-#[cfg(not(target_arch = "wasm32"))]
-pub use cpal_audio_engine::AudioEngine;
-
-#[cfg(target_arch = "wasm32")]
-mod web_audio_engine;
-#[cfg(target_arch = "wasm32")]
-pub use web_audio_engine::AudioEngine;
+mod engine;
+pub use engine::AudioEngine;
 
 pub use ogg::OggDecoder;
 pub use wav::WavDecoder;
@@ -121,12 +114,12 @@ pub trait SoundSource {
     /// Start the sound from the begining
     fn reset(&mut self);
 
-    /// Write the samples to the buffer.
+    /// Write the samples to the `buffer`.
     ///
-    /// Return how much has write. If it return a value less thand the length of the buffer, this
-    /// indicate that the sound ended.
+    /// Return how many samples was written. If it return a value less thand the length of the
+    /// buffer, this indicate that the sound ended.
     ///
-    /// The buffer length will always be a multiple of [`self.channels`](SoundSource::channels).
+    /// `buffer` length and ouput will always be a multiple of [`self.channels()`](SoundSource::channels).
     fn write_samples(&mut self, buffer: &mut [i16]) -> usize;
 }
 

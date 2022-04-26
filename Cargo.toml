@@ -17,24 +17,7 @@ exclude = ["examples/"]
 gcd = "2"
 lewton = "0.10"
 hound = "3"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.13"
-
-[target.'cfg(target_arcg = "wasm32")'.dependencies]
-js-sys = "0.3.39"
-wasm-bindgen = "0.2.62"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
-version = "0.3"
-features = [
-  'AudioContext',
-  'AudioDestinationNode',
-  'AudioNode',
-  'AudioParam',
-  'AudioBuffer',
-  'AudioBufferSourceNode'
-]
 
 [dev-dependencies]
 criterion = "0.3"
