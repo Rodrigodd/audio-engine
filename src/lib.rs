@@ -1,6 +1,6 @@
 #![warn(missing_docs)]
 
-//! Audio Engine is a cross-platform crate for audio playback, including Webassembly.
+//! Audio Engine is a cross-platform crate for audio playback, build on top of cpal.
 //!
 //! ## Supported formats
 //! - ogg

@@ -1,6 +1,6 @@
 # Audio Engine
 
-A cross-platform rust crate for audio playback, including Webassembly.
+A cross-platform rust crate for audio playback, build on top of cpal.
 
 ## Supported formats
 - ogg
