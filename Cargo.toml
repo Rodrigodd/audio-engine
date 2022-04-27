@@ -1,7 +1,7 @@
 [package]
 name = "audio-engine"
 description = "A audio playback library"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Rodrigo Batista de Moraes <rodrigobatsmoraes@hotmail.com>"]
 edition = "2018"
 repository = "https://github.com/Rodrigodd/audio-engine"
@@ -17,7 +17,7 @@ exclude = ["examples/"]
 gcd = "2"
 lewton = "0.10"
 hound = "3"
-cpal = "0.13"
+cpal = { version = "0.13.5", features = ["wasm-bindgen"] }
 
 [dev-dependencies]
 criterion = "0.3"
