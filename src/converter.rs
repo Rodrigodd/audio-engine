@@ -216,8 +216,6 @@ impl<T: SoundSource> SampleRateConverter<T> {
         let gcd = inner.sample_rate().gcd(output_sample_rate) as usize;
         let in_len = inner.sample_rate() as usize / gcd * inner.channels() as usize;
         let out_len = output_sample_rate as usize / gcd * inner.channels() as usize;
-        dbg!(in_len);
-        dbg!(out_len);
 
         let channels = inner.channels() as usize;
 
@@ -250,7 +248,6 @@ impl<T: SoundSource> SoundSource for SampleRateConverter<T> {
 
         let channels = self.inner.channels() as usize;
         self.len = self.inner.write_samples(&mut self.in_buffer[..]) - channels;
-        println!("reset: read {:?} from inner", &self.in_buffer[..]);
         self.iter = 0;
     }
     fn write_samples(&mut self, buffer: &mut [i16]) -> usize {
@@ -267,13 +264,11 @@ impl<T: SoundSource> SoundSource for SampleRateConverter<T> {
                 a / b + (a % b != 0) as usize
             }
             let curr_out_len = div_up(self.out_len * self.len, in_len) / channels * channels;
-            dbg!(curr_out_len);
 
             // if next sample is out of bounds, reset in_buffer
             if self.iter >= curr_out_len {
                 // if self.len is smaller than in_len, the inner sound already finished.
                 if self.len < in_len {
-                    println!("inner samples finished ({})", self.len);
                     return i;
                 }
 
@@ -282,11 +277,6 @@ impl<T: SoundSource> SoundSource for SampleRateConverter<T> {
 
                 self.len = self.inner.write_samples(&mut self.in_buffer[channels..]);
                 self.iter = 0;
-
-                println!(
-                    "read {:?} from inner",
-                    &self.in_buffer[channels..self.len + channels]
-                );
             }
 
             // j is the float position in in_buffer.
@@ -302,7 +292,6 @@ impl<T: SoundSource> SoundSource for SampleRateConverter<T> {
                     as i16;
             }
 
-            println!("{}: write {:?}", self.iter, &buffer[i..i + channels]);
             self.iter += channels;
             i += channels;
         }
