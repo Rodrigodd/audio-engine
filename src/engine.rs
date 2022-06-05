@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::SampleRate;
 
 use super::{Mixer, Sound, SoundSource};
 use crate::converter::{ChannelConverter, SampleRateConverter};
@@ -26,39 +27,85 @@ impl AudioEngine {
             .ok_or("no output device available")?;
         let mut supported_configs_range = device
             .supported_output_configs()
-            .map_err(|_| "error while querying formats")?;
-        let config = supported_configs_range
-            .next()
-            .ok_or("no supported format?!")?
-            .with_max_sample_rate();
+            .map_err(|_| "error while querying formats")?
+            .map(|x| {
+                let sample_rate = SampleRate(48000);
+                if x.min_sample_rate() <= sample_rate && sample_rate <= x.max_sample_rate() {
+                    return x.with_sample_rate(sample_rate);
+                }
 
-        let sample_format = config.sample_format();
-        let config = config.config();
+                let sample_rate = SampleRate(44100);
+                if x.min_sample_rate() <= sample_rate && sample_rate <= x.max_sample_rate() {
+                    return x.with_sample_rate(sample_rate);
+                }
 
-        let mixer = Arc::new(Mutex::new(Mixer::new(
-            config.channels,
-            super::SampleRate(config.sample_rate.0),
-        )));
+                x.with_max_sample_rate()
+            })
+            .collect::<Vec<_>>();
 
-        let stream = {
-            match sample_format {
-                cpal::SampleFormat::I16 => stream::<i16>(&mixer, device, config),
-                cpal::SampleFormat::U16 => stream::<i16>(&mixer, device, config),
-                cpal::SampleFormat::F32 => stream::<f32>(&mixer, device, config),
+        // sort in descending sample_rate
+        supported_configs_range.sort_unstable_by(|a, b| {
+            let key = |x: &cpal::SupportedStreamConfig| {
+                (
+                    x.sample_rate().0 == 48000,
+                    x.sample_rate().0 == 441000,
+                    x.sample_format() == cpal::SampleFormat::I16,
+                    x.sample_rate().0,
+                )
+            };
+            key(a).cmp(&key(b)).reverse()
+        });
+
+        if log::max_level() >= log::LevelFilter::Trace {
+            for config in &supported_configs_range {
+                log::trace!("config {:?}", config);
             }
-        };
-        stream.play().unwrap();
+        }
 
-        let m = mixer.lock().unwrap();
-        let channels = m.channels;
-        let sample_rate = m.sample_rate;
-        drop(m);
-        Ok(Self {
-            mixer,
-            channels,
-            sample_rate,
-            _stream: stream,
-        })
+        for config in supported_configs_range {
+            let sample_format = config.sample_format();
+            let config = config.config();
+
+            let mixer = Arc::new(Mutex::new(Mixer::new(
+                config.channels,
+                super::SampleRate(config.sample_rate.0),
+            )));
+
+            let stream = {
+                match sample_format {
+                    cpal::SampleFormat::I16 => stream::<i16>(&mixer, &device, &config),
+                    cpal::SampleFormat::U16 => stream::<u16>(&mixer, &device, &config),
+                    cpal::SampleFormat::F32 => stream::<f32>(&mixer, &device, &config),
+                }
+            };
+            let stream = match stream {
+                Ok(x) => {
+                    log::info!(
+                        "created {:?} stream with config {:?}",
+                        sample_format,
+                        config
+                    );
+                    x
+                }
+                Err(e) => {
+                    log::error!("failed to create stream with config {:?}: {:?}", config, e);
+                    continue;
+                }
+            };
+            stream.play().unwrap();
+
+            let m = mixer.lock().unwrap();
+            let channels = m.channels;
+            let sample_rate = m.sample_rate;
+            drop(m);
+            return Ok(Self {
+                mixer,
+                channels,
+                sample_rate,
+                _stream: stream,
+            });
+        }
+        Err("no supported config")
     }
 
     /// The sample rate that is currently being outputed to the device.
@@ -119,26 +166,28 @@ impl AudioEngine {
 
 fn stream<T: cpal::Sample>(
     mixer: &Arc<Mutex<Mixer>>,
-    device: cpal::Device,
-    config: cpal::StreamConfig,
-) -> cpal::Stream {
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+) -> Result<cpal::Stream, cpal::BuildStreamError> {
     let mixer = mixer.clone();
-    device
-        .build_output_stream(
-            &config,
-            move |buffer: &mut [T], _| {
-                let mut buf = vec![0; buffer.len()];
-                mixer.lock().unwrap().write_samples(&mut buf);
-                for i in 0..buffer.len() {
-                    buffer[i] = T::from(&buf[i]);
-                }
-            },
-            move |err| match err {
-                cpal::StreamError::DeviceNotAvailable => {
-                    todo!("handle device disconnection")
-                }
-                cpal::StreamError::BackendSpecific { err } => panic!("{}", err),
-            },
-        )
-        .unwrap()
+    let mut input_buffer = Vec::new();
+    device.build_output_stream(
+        config,
+        move |output_buffer: &mut [T], _| {
+            input_buffer.clear();
+            input_buffer.resize(output_buffer.len(), 0);
+            mixer.lock().unwrap().write_samples(&mut input_buffer);
+            // write  sample to output buffer
+            output_buffer
+                .iter_mut()
+                .zip(input_buffer.iter())
+                .for_each(|(a, b)| *a = T::from(b));
+        },
+        move |err| match err {
+            cpal::StreamError::DeviceNotAvailable => {
+                todo!("handle device disconnection")
+            }
+            cpal::StreamError::BackendSpecific { err } => panic!("{}", err),
+        },
+    )
 }
