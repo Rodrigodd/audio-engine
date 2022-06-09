@@ -213,6 +213,8 @@ fn create_device(
             (
                 x.sample_rate().0 == 48000,
                 x.sample_rate().0 == 441000,
+                x.channels() == 2,
+                x.channels() == 1,
                 x.sample_format() == cpal::SampleFormat::I16,
                 x.sample_rate().0,
             )
