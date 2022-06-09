@@ -6,92 +6,129 @@ use cpal::{SampleRate, StreamError};
 use super::{Mixer, Sound, SoundSource};
 use crate::converter::{ChannelConverter, SampleRateConverter};
 
-struct StreamEventLoop {
-    mixer: Arc<Mutex<Mixer>>,
-    stream: Option<cpal::platform::Stream>,
-}
-impl StreamEventLoop {
-    fn run(
-        &mut self,
-        event_channel: std::sync::mpsc::Sender<StreamEvent>,
-        stream_event_receiver: std::sync::mpsc::Receiver<StreamEvent>,
-    ) {
-        // Trigger first device creation
-        event_channel.send(StreamEvent::RecreateStream).unwrap();
+use backend::Backend;
 
-        let mut handled = false;
-        let error_callback = move |err| {
-            log::error!("stream error: {}", err);
-            if !handled {
-                // The Stream could have send multiple errors. I confirmed this happening on
-                // android (a error before the stream close, and a error after closing it).
-                handled = true;
-                event_channel.send(StreamEvent::RecreateStream).unwrap()
-            }
-        };
+#[cfg(not(target_arch = "wasm32"))]
+mod backend {
+    use super::create_device;
+    use crate::Mixer;
+    use std::sync::{Arc, Mutex};
 
-        while let Ok(event) = stream_event_receiver.recv() {
-            match event {
-                StreamEvent::RecreateStream => {
-                    log::debug!("recreating audio device");
+    struct StreamEventLoop {
+        mixer: Arc<Mutex<Mixer>>,
+        stream: Option<cpal::platform::Stream>,
+    }
 
-                    // Droping the stream is unsound in android, see:
-                    // https://github.com/katyo/oboe-rs/issues/41
-                    #[cfg(target_os = "android")]
-                    std::mem::forget(self.stream.take());
+    impl StreamEventLoop {
+        fn run(
+            &mut self,
+            event_channel: std::sync::mpsc::Sender<StreamEvent>,
+            stream_event_receiver: std::sync::mpsc::Receiver<StreamEvent>,
+        ) {
+            // Trigger first device creation
+            event_channel.send(StreamEvent::RecreateStream).unwrap();
 
-                    #[cfg(not(target_os = "android"))]
-                    drop(self.stream.take());
-
-                    let stream = create_device(&self.mixer, error_callback.clone());
-                    let stream = match stream {
-                        Ok(x) => x,
-                        Err(x) => {
-                            log::error!("creating audio device failed: {}", x);
-                            return;
-                        }
-                    };
-                    self.stream = Some(stream);
+            let mut handled = false;
+            let error_callback = move |err| {
+                log::error!("stream error: {}", err);
+                if !handled {
+                    // The Stream could have send multiple errors. I confirmed this happening on
+                    // android (a error before the stream close, and a error after closing it).
+                    handled = true;
+                    event_channel.send(StreamEvent::RecreateStream).unwrap()
                 }
-                StreamEvent::Drop => return,
+            };
+
+            while let Ok(event) = stream_event_receiver.recv() {
+                match event {
+                    StreamEvent::RecreateStream => {
+                        log::debug!("recreating audio device");
+
+                        // Droping the stream is unsound in android, see:
+                        // https://github.com/katyo/oboe-rs/issues/41
+                        #[cfg(target_os = "android")]
+                        std::mem::forget(self.stream.take());
+
+                        #[cfg(not(target_os = "android"))]
+                        drop(self.stream.take());
+
+                        let stream = create_device(&self.mixer, error_callback.clone());
+                        let stream = match stream {
+                            Ok(x) => x,
+                            Err(x) => {
+                                log::error!("creating audio device failed: {}", x);
+                                return;
+                            }
+                        };
+                        self.stream = Some(stream);
+                    }
+                    StreamEvent::Drop => return,
+                }
             }
         }
     }
-}
 
-enum StreamEvent {
-    RecreateStream,
-    Drop,
-}
+    enum StreamEvent {
+        RecreateStream,
+        Drop,
+    }
 
-struct Backend {
-    join: Option<std::thread::JoinHandle<()>>,
-    sender: std::sync::mpsc::Sender<StreamEvent>,
-}
-impl Backend {
-    fn start(mixer: Arc<Mutex<Mixer>>) -> Self {
-        let (sender, receiver) = std::sync::mpsc::channel::<StreamEvent>();
-        let join = {
-            let sender = sender.clone();
-            std::thread::spawn(move || {
-                log::trace!("starting thread");
-                StreamEventLoop {
-                    mixer,
-                    stream: None,
-                }
-                .run(sender, receiver)
+    pub struct Backend {
+        join: Option<std::thread::JoinHandle<()>>,
+        sender: std::sync::mpsc::Sender<StreamEvent>,
+    }
+    impl Backend {
+        pub(super) fn start(mixer: Arc<Mutex<Mixer>>) -> Result<Self, &'static str> {
+            let (sender, receiver) = std::sync::mpsc::channel::<StreamEvent>();
+            let join = {
+                let sender = sender.clone();
+                std::thread::spawn(move || {
+                    log::trace!("starting thread");
+                    StreamEventLoop {
+                        mixer,
+                        stream: None,
+                    }
+                    .run(sender, receiver)
+                })
+            };
+            Ok(Self {
+                join: Some(join),
+                sender,
             })
-        };
-        Self {
-            join: Some(join),
-            sender,
+        }
+    }
+
+    impl Drop for Backend {
+        fn drop(&mut self) {
+            self.sender.send(StreamEvent::Drop).unwrap();
+            self.join.take().unwrap().join().unwrap();
         }
     }
 }
-impl Drop for Backend {
-    fn drop(&mut self) {
-        self.sender.send(StreamEvent::Drop).unwrap();
-        self.join.take().unwrap().join().unwrap();
+#[cfg(target_arch = "wasm32")]
+mod backend {
+    use super::create_device;
+    use crate::Mixer;
+    use std::sync::{Arc, Mutex};
+
+    pub struct Backend {
+        _stream: cpal::Stream,
+    }
+    impl Backend {
+        pub(super) fn start(mixer: Arc<Mutex<Mixer>>) -> Result<Self, &'static str> {
+            // On Wasm backend, I cannot created a second thread to handle stream errors, but
+            // errors in the wasm backend (AudioContext) is unexpected. In fact, cpal don't create
+            // any StreamError in its wasm backend.
+            let stream = create_device(&mixer, |err| log::error!("stream error: {err}"));
+            let stream = match stream {
+                Ok(x) => x,
+                Err(x) => {
+                    log::error!("creating audio device failed: {}", x);
+                    return Err(x);
+                }
+            };
+            Ok(Self { _stream: stream })
+        }
     }
 }
 
@@ -111,7 +148,7 @@ impl AudioEngine {
     /// to the output stream.
     pub fn new() -> Result<Self, &'static str> {
         let mixer = Arc::new(Mutex::new(Mixer::new(2, super::SampleRate(48000))));
-        let backend = Backend::start(mixer.clone());
+        let backend = Backend::start(mixer.clone())?;
 
         let m = mixer.lock().unwrap();
         let channels = m.channels();
@@ -161,7 +198,7 @@ impl AudioEngine {
                     self.channels,
                 ))
             } else {
-                return Err("Number of channels do not match the output, and is not 1");
+                return Err("Number of channels do not match the output, and neither are 1");
             }
         } else if source.channels() == self.channels {
             Box::new(source)
