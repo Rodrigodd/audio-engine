@@ -137,8 +137,6 @@ mod backend {
 /// This hold all existing `SoundSource`s and `cpal::platform::Stream`.
 pub struct AudioEngine {
     mixer: Arc<Mutex<Mixer>>,
-    channels: u16,
-    sample_rate: u32,
     _backend: Backend,
 }
 impl AudioEngine {
@@ -150,26 +148,22 @@ impl AudioEngine {
         let mixer = Arc::new(Mutex::new(Mixer::new(2, super::SampleRate(48000))));
         let backend = Backend::start(mixer.clone())?;
 
-        let m = mixer.lock().unwrap();
-        let channels = m.channels();
-        let sample_rate = m.sample_rate();
-        drop(m);
         Ok(Self {
             mixer,
-            channels,
-            sample_rate,
             _backend: backend,
         })
     }
 
     /// The sample rate that is currently being outputed to the device.
     pub fn sample_rate(&self) -> u32 {
-        self.sample_rate
+        self.mixer.lock().unwrap().sample_rate()
     }
 
-    /// The number of channels that is currently being outputed to the device.
+    /// The sample rate of the current output device.
+    ///
+    /// May change when the device changes.
     pub fn channels(&self) -> u16 {
-        self.channels
+        self.mixer.lock().unwrap().channels()
     }
 
     /// Create a new Sound.
@@ -184,26 +178,30 @@ impl AudioEngine {
         &self,
         source: T,
     ) -> Result<Sound, &'static str> {
-        let sound: Box<dyn SoundSource + Send> = if source.sample_rate() != self.sample_rate {
-            if source.channels() == self.channels {
-                Box::new(SampleRateConverter::new(source, self.sample_rate))
-            } else if self.channels == 1 || source.channels() == 1 {
+        let mut mixer = self.mixer.lock().unwrap();
+
+        let sound: Box<dyn SoundSource + Send> = if source.sample_rate() != mixer.sample_rate.0 {
+            if source.channels() == mixer.channels {
+                Box::new(SampleRateConverter::new(source, mixer.sample_rate.0))
+            } else if mixer.channels == 1 || source.channels() == 1 {
                 Box::new(ChannelConverter::new(
-                    SampleRateConverter::new(source, self.sample_rate),
-                    self.channels,
+                    SampleRateConverter::new(source, mixer.sample_rate.0),
+                    mixer.channels,
                 ))
             } else {
                 return Err("Number of channels do not match the output, and neither are 1");
             }
-        } else if source.channels() == self.channels {
+        } else if source.channels() == mixer.channels {
             Box::new(source)
-        } else if self.channels == 1 || source.channels() == 1 {
-            Box::new(ChannelConverter::new(source, self.channels))
+        } else if mixer.channels == 1 || source.channels() == 1 {
+            Box::new(ChannelConverter::new(source, mixer.channels))
         } else {
             return Err("Number of channels do not match the output, and is not 1");
         };
 
-        let id = self.mixer.lock().unwrap().add_sound(sound);
+        let id = mixer.add_sound(sound);
+        drop(mixer);
+
         Ok(Sound {
             mixer: self.mixer.clone(),
             id,
