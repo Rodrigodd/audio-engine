@@ -105,21 +105,22 @@ impl Drop for Sound {
 ///
 /// Sound samples of each channel must be interleaved.
 pub trait SoundSource {
-    /// Return the number of channels
+    /// Return the number of channels.
     fn channels(&self) -> u16;
 
-    /// return the sample rate
+    /// Return the sample rate.
     fn sample_rate(&self) -> u32;
 
-    /// Start the sound from the begining
+    /// Start the sound from the begining.
     fn reset(&mut self);
 
-    /// Write the samples to the `buffer`.
+    /// Write the samples to `buffer`.
     ///
-    /// Return how many samples was written. If it return a value less thand the length of the
-    /// buffer, this indicate that the sound ended.
+    /// Return how many samples was written. If it return a value less thand the length of
+    /// `buffer`, this indicate that the sound ended.
     ///
-    /// `buffer` length and ouput will always be a multiple of [`self.channels()`](SoundSource::channels).
+    /// The `buffer` length and the returned length should always be a multiple of
+    /// [`self.channels()`](SoundSource::channels).
     fn write_samples(&mut self, buffer: &mut [i16]) -> usize;
 }
 impl<T: SoundSource + ?Sized> SoundSource for Box<T> {
