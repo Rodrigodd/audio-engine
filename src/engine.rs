@@ -151,6 +151,16 @@ mod backend {
             };
             Ok(Self { _stream: stream })
         }
+
+        pub(super) fn resume(&self) {
+            match self._stream.as_inner() {
+                cpal::platform::StreamInner::WebAudio(x) => {
+                    let _ = x.audio_context().resume();
+                }
+                #[allow(unreachable_patterns)]
+                _ => {}
+            }
+        }
     }
 }
 
@@ -234,6 +244,17 @@ impl AudioEngine {
     }
 }
 impl<G: Eq + Hash + Send> AudioEngine<G> {
+    //// Call `resume()` on the underlying
+    ///[`AudioContext`](https://developer.mozilla.org/pt-BR/docs/Web/API/AudioContext).
+    ///
+    /// On Chrome, if a `AudioContext` is created before a user interaction, the `AudioContext` will
+    /// start in the "supended" state. To resume the `AudioContext`, `AudioContext.resume()` must be
+    /// called.
+    #[cfg(target_arch = "wasm32")]
+    pub fn resume(&self) {
+        self._backend.resume()
+    }
+
     /// The sample rate that is currently being outputed to the device.
     pub fn sample_rate(&self) -> u32 {
         self.mixer.lock().unwrap().sample_rate()
