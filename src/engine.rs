@@ -1,10 +1,99 @@
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::SampleRate;
+use cpal::{SampleRate, StreamError};
 
 use super::{Mixer, Sound, SoundSource};
 use crate::converter::{ChannelConverter, SampleRateConverter};
+
+struct StreamEventLoop {
+    mixer: Arc<Mutex<Mixer>>,
+    stream: Option<cpal::platform::Stream>,
+}
+impl StreamEventLoop {
+    fn run(
+        &mut self,
+        event_channel: std::sync::mpsc::Sender<StreamEvent>,
+        stream_event_receiver: std::sync::mpsc::Receiver<StreamEvent>,
+    ) {
+        // Trigger first device creation
+        event_channel.send(StreamEvent::RecreateStream).unwrap();
+
+        let mut handled = false;
+        let error_callback = move |err| {
+            log::error!("stream error: {}", err);
+            if !handled {
+                // The Stream could have send multiple errors. I confirmed this happening on
+                // android (a error before the stream close, and a error after closing it).
+                handled = true;
+                event_channel.send(StreamEvent::RecreateStream).unwrap()
+            }
+        };
+
+        while let Ok(event) = stream_event_receiver.recv() {
+            match event {
+                StreamEvent::RecreateStream => {
+                    log::debug!("recreating audio device");
+
+                    // Droping the stream is unsound in android, see:
+                    // https://github.com/katyo/oboe-rs/issues/41
+                    #[cfg(target_os = "android")]
+                    std::mem::forget(self.stream.take());
+
+                    #[cfg(not(target_os = "android"))]
+                    drop(self.stream.take());
+
+                    let stream = create_device(&self.mixer, error_callback.clone());
+                    let stream = match stream {
+                        Ok(x) => x,
+                        Err(x) => {
+                            log::error!("creating audio device failed: {}", x);
+                            return;
+                        }
+                    };
+                    self.stream = Some(stream);
+                }
+                StreamEvent::Drop => return,
+            }
+        }
+    }
+}
+
+enum StreamEvent {
+    RecreateStream,
+    Drop,
+}
+
+struct Backend {
+    join: Option<std::thread::JoinHandle<()>>,
+    sender: std::sync::mpsc::Sender<StreamEvent>,
+}
+impl Backend {
+    fn start(mixer: Arc<Mutex<Mixer>>) -> Self {
+        let (sender, receiver) = std::sync::mpsc::channel::<StreamEvent>();
+        let join = {
+            let sender = sender.clone();
+            std::thread::spawn(move || {
+                log::trace!("starting thread");
+                StreamEventLoop {
+                    mixer,
+                    stream: None,
+                }
+                .run(sender, receiver)
+            })
+        };
+        Self {
+            join: Some(join),
+            sender,
+        }
+    }
+}
+impl Drop for Backend {
+    fn drop(&mut self) {
+        self.sender.send(StreamEvent::Drop).unwrap();
+        self.join.take().unwrap().join().unwrap();
+    }
+}
 
 /// The main struct of the crate.
 ///
@@ -13,7 +102,7 @@ pub struct AudioEngine {
     mixer: Arc<Mutex<Mixer>>,
     channels: u16,
     sample_rate: u32,
-    _stream: cpal::platform::Stream,
+    _backend: Backend,
 }
 impl AudioEngine {
     /// Tries to create a new AudioEngine.
@@ -21,91 +110,19 @@ impl AudioEngine {
     /// `cpal` will spawn a new thread where the sound samples will be sampled, mixed, and outputed
     /// to the output stream.
     pub fn new() -> Result<Self, &'static str> {
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or("no output device available")?;
-        let mut supported_configs_range = device
-            .supported_output_configs()
-            .map_err(|_| "error while querying formats")?
-            .map(|x| {
-                let sample_rate = SampleRate(48000);
-                if x.min_sample_rate() <= sample_rate && sample_rate <= x.max_sample_rate() {
-                    return x.with_sample_rate(sample_rate);
-                }
+        let mixer = Arc::new(Mutex::new(Mixer::new(2, super::SampleRate(48000))));
+        let backend = Backend::start(mixer.clone());
 
-                let sample_rate = SampleRate(44100);
-                if x.min_sample_rate() <= sample_rate && sample_rate <= x.max_sample_rate() {
-                    return x.with_sample_rate(sample_rate);
-                }
-
-                x.with_max_sample_rate()
-            })
-            .collect::<Vec<_>>();
-
-        // sort in descending sample_rate
-        supported_configs_range.sort_unstable_by(|a, b| {
-            let key = |x: &cpal::SupportedStreamConfig| {
-                (
-                    x.sample_rate().0 == 48000,
-                    x.sample_rate().0 == 441000,
-                    x.sample_format() == cpal::SampleFormat::I16,
-                    x.sample_rate().0,
-                )
-            };
-            key(a).cmp(&key(b)).reverse()
+        let m = mixer.lock().unwrap();
+        let channels = m.channels();
+        let sample_rate = m.sample_rate();
+        drop(m);
+        return Ok(Self {
+            mixer,
+            channels,
+            sample_rate,
+            _backend: backend,
         });
-
-        if log::max_level() >= log::LevelFilter::Trace {
-            for config in &supported_configs_range {
-                log::trace!("config {:?}", config);
-            }
-        }
-
-        for config in supported_configs_range {
-            let sample_format = config.sample_format();
-            let config = config.config();
-
-            let mixer = Arc::new(Mutex::new(Mixer::new(
-                config.channels,
-                super::SampleRate(config.sample_rate.0),
-            )));
-
-            let stream = {
-                match sample_format {
-                    cpal::SampleFormat::I16 => stream::<i16>(&mixer, &device, &config),
-                    cpal::SampleFormat::U16 => stream::<u16>(&mixer, &device, &config),
-                    cpal::SampleFormat::F32 => stream::<f32>(&mixer, &device, &config),
-                }
-            };
-            let stream = match stream {
-                Ok(x) => {
-                    log::info!(
-                        "created {:?} stream with config {:?}",
-                        sample_format,
-                        config
-                    );
-                    x
-                }
-                Err(e) => {
-                    log::error!("failed to create stream with config {:?}: {:?}", config, e);
-                    continue;
-                }
-            };
-            stream.play().unwrap();
-
-            let m = mixer.lock().unwrap();
-            let channels = m.channels;
-            let sample_rate = m.sample_rate;
-            drop(m);
-            return Ok(Self {
-                mixer,
-                channels,
-                sample_rate,
-                _stream: stream,
-            });
-        }
-        Err("no supported config")
     }
 
     /// The sample rate that is currently being outputed to the device.
@@ -164,8 +181,93 @@ impl AudioEngine {
     }
 }
 
-fn stream<T: cpal::Sample>(
+fn create_device(
     mixer: &Arc<Mutex<Mixer>>,
+    error_callback: impl FnMut(StreamError) + Send + Clone + 'static,
+) -> Result<cpal::Stream, &'static str> {
+    let host = cpal::default_host();
+    dbg!(host.id());
+    dbg!(cpal::available_hosts());
+    let device = host
+        .default_output_device()
+        .ok_or("no output device available")?;
+    let mut supported_configs_range = device
+        .supported_output_configs()
+        .map_err(|_| "error while querying formats")?
+        .map(|x| {
+            let sample_rate = SampleRate(48000);
+            if x.min_sample_rate() <= sample_rate && sample_rate <= x.max_sample_rate() {
+                return x.with_sample_rate(sample_rate);
+            }
+
+            let sample_rate = SampleRate(44100);
+            if x.min_sample_rate() <= sample_rate && sample_rate <= x.max_sample_rate() {
+                return x.with_sample_rate(sample_rate);
+            }
+
+            x.with_max_sample_rate()
+        })
+        .collect::<Vec<_>>();
+    supported_configs_range.sort_unstable_by(|a, b| {
+        let key = |x: &cpal::SupportedStreamConfig| {
+            (
+                x.sample_rate().0 == 48000,
+                x.sample_rate().0 == 441000,
+                x.sample_format() == cpal::SampleFormat::I16,
+                x.sample_rate().0,
+            )
+        };
+        key(a).cmp(&key(b))
+    });
+    if log::max_level() >= log::LevelFilter::Trace {
+        for config in &supported_configs_range {
+            log::trace!("config {:?}", config);
+        }
+    }
+    let stream = loop {
+        let config = if let Some(config) = supported_configs_range.pop() {
+            config
+        } else {
+            return Err("no supported config");
+        };
+        let sample_format = config.sample_format();
+        let config = config.config();
+        mixer
+            .lock()
+            .unwrap()
+            .set_config(config.channels, super::SampleRate(config.sample_rate.0));
+
+        let stream = {
+            use cpal::SampleFormat::*;
+            match sample_format {
+                I16 => stream::<i16, _>(mixer, error_callback.clone(), &device, &config),
+                U16 => stream::<u16, _>(mixer, error_callback.clone(), &device, &config),
+                F32 => stream::<f32, _>(mixer, error_callback.clone(), &device, &config),
+            }
+        };
+        let stream = match stream {
+            Ok(x) => {
+                log::info!(
+                    "created {:?} stream with config {:?}",
+                    sample_format,
+                    config
+                );
+                x
+            }
+            Err(e) => {
+                log::error!("failed to create stream with config {:?}: {:?}", config, e);
+                continue;
+            }
+        };
+        stream.play().unwrap();
+        break stream;
+    };
+    Ok(stream)
+}
+
+fn stream<T: cpal::Sample, E: FnMut(StreamError) + Send + 'static>(
+    mixer: &Arc<Mutex<Mixer>>,
+    error_callback: E,
     device: &cpal::Device,
     config: &cpal::StreamConfig,
 ) -> Result<cpal::Stream, cpal::BuildStreamError> {
@@ -183,11 +285,6 @@ fn stream<T: cpal::Sample>(
                 .zip(input_buffer.iter())
                 .for_each(|(a, b)| *a = T::from(b));
         },
-        move |err| match err {
-            cpal::StreamError::DeviceNotAvailable => {
-                todo!("handle device disconnection")
-            }
-            cpal::StreamError::BackendSpecific { err } => panic!("{}", err),
-        },
+        error_callback,
     )
 }

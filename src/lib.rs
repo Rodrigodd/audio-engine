@@ -122,6 +122,23 @@ pub trait SoundSource {
     /// `buffer` length and ouput will always be a multiple of [`self.channels()`](SoundSource::channels).
     fn write_samples(&mut self, buffer: &mut [i16]) -> usize;
 }
+impl<T: SoundSource + ?Sized> SoundSource for Box<T> {
+    fn channels(&self) -> u16 {
+        (**self).channels()
+    }
+
+    fn sample_rate(&self) -> u32 {
+        (**self).sample_rate()
+    }
+
+    fn reset(&mut self) {
+        (**self).reset()
+    }
+
+    fn write_samples(&mut self, buffer: &mut [i16]) -> usize {
+        (**self).write_samples(buffer)
+    }
+}
 
 struct SoundInner {
     id: SoundId,
@@ -147,7 +164,7 @@ struct Mixer {
     sounds: Vec<SoundInner>,
     playing: usize,
     channels: u16,
-    sample_rate: u32,
+    sample_rate: SampleRate,
 }
 impl Mixer {
     fn new(channels: u16, sample_rate: SampleRate) -> Self {
@@ -155,9 +172,49 @@ impl Mixer {
             sounds: vec![],
             playing: 0,
             channels,
-            sample_rate: sample_rate.0,
+            sample_rate,
         }
     }
+
+    /// Change the number of channels and the sample rate.
+    ///
+    /// This keep also keep all currently playing sounds, and convert them to the new config, if
+    /// necessary.
+    fn set_config(&mut self, channels: u16, sample_rate: SampleRate) {
+        struct Nop;
+        #[rustfmt::skip]
+        impl SoundSource for Nop {
+            fn channels(&self) -> u16 { 0 }
+            fn sample_rate(&self) -> u32 { 0 }
+            fn reset(&mut self) { }
+            fn write_samples(&mut self, _: &mut [i16]) -> usize { 0 }
+        }
+
+        let not_chaged = self.channels == channels && self.sample_rate == sample_rate;
+        if not_chaged {
+            return;
+        }
+        if !self.sounds.is_empty() {
+            for sound in self.sounds.iter_mut() {
+                // FIXME: if the config change multiple times, this will nest multiple converts,
+                // increasing processing and loosing quality.
+                // Maybe I should create something like a tree of converters, and always keep the
+                // convertes Concrete.
+                if sound.data.channels() != channels {
+                    let inner = std::mem::replace(&mut sound.data, Box::new(Nop));
+                    sound.data = Box::new(converter::ChannelConverter::new(inner, channels));
+                }
+                if sound.data.sample_rate() != sample_rate.0 {
+                    let inner = std::mem::replace(&mut sound.data, Box::new(Nop));
+                    sound.data =
+                        Box::new(converter::SampleRateConverter::new(inner, sample_rate.0));
+                }
+            }
+        }
+        self.channels = channels;
+        self.sample_rate = sample_rate;
+    }
+
     fn add_sound(&mut self, sound: Box<dyn SoundSource + Send>) -> SoundId {
         let sound_inner = SoundInner::new(sound);
         let id = sound_inner.id;
@@ -178,7 +235,7 @@ impl Mixer {
     }
 
     /// If the sound is playing, it will pause. If play is called,
-    /// this sound will continue from where it was before pause.
+    /// this sound will continue from where it was when paused.
     /// If the sound is not playing, does nothing.
     fn pause(&mut self, id: SoundId) {
         for i in (0..self.playing).rev() {
@@ -226,7 +283,7 @@ impl Mixer {
         }
     }
 
-    /// Set if the sound will repeat even time it reach the end.
+    /// Set if the sound will repeat ever time it reach the end.
     fn set_loop(&mut self, id: SoundId, looping: bool) {
         for i in (0..self.sounds.len()).rev() {
             if self.sounds[i].id == id {
@@ -252,7 +309,7 @@ impl SoundSource for Mixer {
     }
 
     fn sample_rate(&self) -> u32 {
-        self.sample_rate
+        self.sample_rate.0
     }
 
     fn reset(&mut self) {}
