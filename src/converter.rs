@@ -1,4 +1,4 @@
-//! Structs for converting SoundSource paramters, like channel number and sample rate.
+//! Structs for converting SoundSource parameters, like number of channels and sample rate.
 
 use super::SoundSource;
 use std::vec;
