@@ -164,12 +164,12 @@ impl AudioEngine {
         let channels = m.channels();
         let sample_rate = m.sample_rate();
         drop(m);
-        return Ok(Self {
+        Ok(Self {
             mixer,
             channels,
             sample_rate,
             _backend: backend,
-        });
+        })
     }
 
     //// Call `resume()` on the underlying
@@ -208,12 +208,7 @@ impl AudioEngine {
         let sound: Box<dyn SoundSource + Send> = if source.sample_rate() != self.sample_rate {
             if source.channels() == self.channels {
                 Box::new(SampleRateConverter::new(source, self.sample_rate))
-            } else if self.channels == 1 {
-                Box::new(ChannelConverter::new(
-                    SampleRateConverter::new(source, self.sample_rate),
-                    self.channels,
-                ))
-            } else if source.channels() == 1 {
+            } else if self.channels == 1 || source.channels() == 1 {
                 Box::new(ChannelConverter::new(
                     SampleRateConverter::new(source, self.sample_rate),
                     self.channels,
@@ -223,9 +218,7 @@ impl AudioEngine {
             }
         } else if source.channels() == self.channels {
             Box::new(source)
-        } else if self.channels == 1 {
-            Box::new(ChannelConverter::new(source, self.channels))
-        } else if source.channels() == 1 {
+        } else if self.channels == 1 || source.channels() == 1 {
             Box::new(ChannelConverter::new(source, self.channels))
         } else {
             return Err("Number of channels do not match the output, and is not 1");
