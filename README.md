@@ -1,5 +1,8 @@
 # Audio Engine
 
+[![Crates.io](https://img.shields.io/crates/v/audio-engine.svg)](https://crates.io/crates/audio-engine) 
+[![docs.rs](https://docs.rs/audio-engine/badge.svg)](https://docs.rs/audio-engine/)
+
 A cross-platform rust crate for audio playback, build on top of cpal.
 
 ## Supported formats
