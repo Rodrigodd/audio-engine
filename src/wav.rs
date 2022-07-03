@@ -11,12 +11,14 @@ pub struct WavDecoder<T: Seek + Read + Send + 'static> {
 }
 impl<T: Seek + Read + Send + 'static> WavDecoder<T> {
     /// Create a new WavDecoder from the given .wav data.
-    pub fn new(data: T) -> Self {
-        let reader = WavReader::new(data).unwrap();
-        Self {
+    pub fn new(data: T) -> Result<Self, hound::Error> {
+        let reader = WavReader::new(data)?;
+        Ok(Self {
             channels: reader.spec().channels,
             sample_rate: reader.spec().sample_rate,
             reader,
+        })
+    }
         }
     }
 }

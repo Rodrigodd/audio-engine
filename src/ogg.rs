@@ -12,19 +12,18 @@ pub struct OggDecoder<T: Seek + Read + Send + 'static> {
 }
 impl<T: Seek + Read + Send + 'static> OggDecoder<T> {
     /// Create a new OggDecoder from the given .ogg data.
-    pub fn new(data: T) -> Self {
-        let mut reader = OggStreamReader::new(data).unwrap();
+    pub fn new(data: T) -> Result<Self, lewton::VorbisError> {
+        let mut reader = OggStreamReader::new(data)?;
         // The first packed is always empty
-        let _ = reader.read_dec_packet_itl().unwrap();
-        Self {
+        let _ = reader.read_dec_packet_itl()?;
+        Ok(Self {
             buffer: reader
-                .read_dec_packet_itl()
-                .unwrap()
+                .read_dec_packet_itl()?
                 .unwrap_or_default()
                 .into_iter(),
             reader: Some(reader),
             done: false,
-        }
+        })
     }
 
     fn reader(&self) -> &OggStreamReader<T> {
