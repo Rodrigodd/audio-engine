@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - Unreleased
+
+### Changed
+
+- **breaking**: Return a `Result` instead of panicking if creating a
+  `WavDecoder` or `OggDecoder` fail.
+
+### Fixed
+
+- Handle i8, i16, i24, i32 and f32 sample formats in `WavDecoder`.
+
 ## [0.2.3] - 2022-06-29
 
 ### Fixed
