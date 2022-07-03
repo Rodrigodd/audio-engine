@@ -214,8 +214,6 @@ fn create_device(
     error_callback: impl FnMut(StreamError) + Send + Clone + 'static,
 ) -> Result<cpal::Stream, &'static str> {
     let host = cpal::default_host();
-    dbg!(host.id());
-    dbg!(cpal::available_hosts());
     let device = host
         .default_output_device()
         .ok_or("no output device available")?;
