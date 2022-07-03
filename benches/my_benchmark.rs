@@ -6,15 +6,16 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("ogg decoder", |b| {
         b.iter(|| {
             let mut decoder =
-                OggDecoder::new(Cursor::new(&include_bytes!("../examples/pipe.ogg")[..]));
-            while decoder.write_samples(&mut [0; 1000][..]) < 1000 {}
+                OggDecoder::new(Cursor::new(&include_bytes!("../examples/pipe.ogg")[..])).unwrap();
+            while decoder.write_samples(&mut [0; 1000][..]) != 0 {}
         })
     });
     c.bench_function("wav decoder", |b| {
         b.iter(|| {
             let mut decoder =
-                WavDecoder::new(Cursor::new(&include_bytes!("../examples/ilussion.wav")[..]));
-            while decoder.write_samples(&mut [0; 1000][..]) < 1000 {}
+                WavDecoder::new(Cursor::new(&include_bytes!("../examples/ilussion.wav")[..]))
+                    .unwrap();
+            while decoder.write_samples(&mut [0; 1000][..]) != 0 {}
         })
     });
 }

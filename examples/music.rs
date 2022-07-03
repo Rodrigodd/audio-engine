@@ -50,9 +50,7 @@ fn main() {
 
     let engine = AudioEngine::new().unwrap();
     let mut music = engine
-        .new_sound(OggDecoder::new(Cursor::new(
-            &include_bytes!("pipe.ogg")[..],
-        )))
+        .new_sound(OggDecoder::new(Cursor::new(&include_bytes!("pipe.ogg")[..])).unwrap())
         .unwrap();
     music.set_loop(true);
     music.play();

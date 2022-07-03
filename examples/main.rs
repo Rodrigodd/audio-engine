@@ -5,17 +5,13 @@ fn main() {
     let engine = AudioEngine::new().unwrap();
     let mut sounds = [
         engine
-            .new_sound(OggDecoder::new(Cursor::new(
-                &include_bytes!("pipe.ogg")[..],
-            )))
+            .new_sound(OggDecoder::new(Cursor::new(&include_bytes!("pipe.ogg")[..])).unwrap())
             .unwrap(),
         engine
-            .new_sound(WavDecoder::new(Cursor::new(
-                &include_bytes!("ilussion.wav")[..],
-            )))
+            .new_sound(WavDecoder::new(Cursor::new(&include_bytes!("ilussion.wav")[..])).unwrap())
             .unwrap(),
         engine
-            .new_sound(WavDecoder::new(Cursor::new(&include_bytes!("0.wav")[..])))
+            .new_sound(WavDecoder::new(Cursor::new(&include_bytes!("0.wav")[..])).unwrap())
             .unwrap(),
     ];
     sounds[0].set_loop(true);
@@ -51,9 +47,9 @@ fn main() {
             Some("new") => {
                 sound_stack.push(
                     engine
-                        .new_sound(OggDecoder::new(Cursor::new(
-                            &include_bytes!("pipe.ogg")[..],
-                        )))
+                        .new_sound(
+                            OggDecoder::new(Cursor::new(&include_bytes!("pipe.ogg")[..])).unwrap(),
+                        )
                         .unwrap(),
                 );
                 sound_stack.last_mut().unwrap().play();
