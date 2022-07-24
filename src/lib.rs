@@ -324,43 +324,43 @@ impl SoundSource for Mixer {
         }
 
         let mut buf = vec![0; buffer.len()];
-        let mut i = 0;
-        while i < self.playing {
+        let mut s = 0;
+        while s < self.playing {
             let mut len = 0;
             loop {
-                len += self.sounds[i].data.write_samples(&mut buf[len..]);
+                len += self.sounds[s].data.write_samples(&mut buf[len..]);
                 if len < buffer.len() {
-                    self.sounds[i].data.reset();
-                    if self.sounds[i].looping {
+                    self.sounds[s].data.reset();
+                    if self.sounds[s].looping {
                         continue;
                     }
                 }
                 break;
             }
 
-            if (self.sounds[0].volume - 1.0).abs() < 1.0 / i16::max_value() as f32 {
+            if (self.sounds[s].volume - 1.0).abs() < 1.0 / i16::max_value() as f32 {
                 for i in 0..len {
                     buffer[i] = buffer[i].saturating_add(buf[i]);
                 }
             } else {
                 for i in 0..len {
                     buffer[i] =
-                        buffer[i].saturating_add((buf[i] as f32 * self.sounds[0].volume) as i16);
+                        buffer[i].saturating_add((buf[i] as f32 * self.sounds[s].volume) as i16);
                 }
             }
 
             if len < buffer.len() {
-                if self.sounds[i].drop {
-                    let _ = self.sounds.swap_remove(i);
+                if self.sounds[s].drop {
+                    let _ = self.sounds.swap_remove(s);
                 }
                 self.playing -= 1;
                 if self.playing > 0 && self.playing < self.sounds.len() {
-                    self.sounds.swap(i, self.playing);
+                    self.sounds.swap(s, self.playing);
                 } else {
                     break;
                 }
             } else {
-                i += 1;
+                s += 1;
             }
         }
 
