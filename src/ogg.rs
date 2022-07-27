@@ -1,6 +1,8 @@
 use lewton::inside_ogg::OggStreamReader;
-use std::io::{Read, Seek, SeekFrom};
-use std::vec::IntoIter;
+use std::{
+    io::{Read, Seek, SeekFrom},
+    vec::IntoIter,
+};
 
 use crate::SoundSource;
 

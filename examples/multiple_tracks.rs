@@ -1,8 +1,5 @@
 use audio_engine::{AudioEngine, OggDecoder};
-use std::{
-    io::Cursor,
-    time::Instant
-};
+use std::{io::Cursor, time::Instant};
 
 fn log_panic() {
     let default_hook = std::panic::take_hook();
@@ -39,11 +36,11 @@ fn log_panic() {
 
 struct SineSource {
     i: u32,
-    freq: f32
+    freq: f32,
 }
 
 impl SineSource {
-    fn new (freq: f32) -> Self {
+    fn new(freq: f32) -> Self {
         Self { i: 0, freq }
     }
 }
@@ -91,12 +88,9 @@ fn main() {
     track1.set_loop(true);
     track1.play();
 
-    let mut track2 = engine
-        .new_sound(SineSource::new(500.0))
-        .unwrap();
+    let mut track2 = engine.new_sound(SineSource::new(500.0)).unwrap();
     track2.set_loop(true);
     track2.play();
-
 
     let mut time: f32;
     let start_time = Instant::now();
@@ -104,7 +98,7 @@ fn main() {
         time = (Instant::now() - start_time).as_secs_f32();
 
         track2.set_volume(
-            time.sin() * 0.5 + 0.5 // [-1, 1] -> [0, 1]
+            time.sin() * 0.5 + 0.5, // [-1, 1] -> [0, 1]
         );
     }
 }

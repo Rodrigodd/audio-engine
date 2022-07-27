@@ -1,7 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{SampleRate, StreamError};
+use cpal::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    SampleRate, StreamError,
+};
 
 use super::{Mixer, Sound, SoundSource};
 use crate::converter::{ChannelConverter, SampleRateConverter};
