@@ -180,23 +180,23 @@ impl AudioEngine {
     ) -> Result<Sound, &'static str> {
         let mut mixer = self.mixer.lock().unwrap();
 
-        let sound: Box<dyn SoundSource + Send> = if source.sample_rate() != mixer.sample_rate.0 {
-            if source.channels() == mixer.channels {
-                Box::new(SampleRateConverter::new(source, mixer.sample_rate.0))
-            } else if mixer.channels == 1 || source.channels() == 1 {
+        let sound: Box<dyn SoundSource + Send> = if source.sample_rate() != mixer.sample_rate() {
+            if source.channels() == mixer.channels() {
+                Box::new(SampleRateConverter::new(source, mixer.sample_rate()))
+            } else if mixer.channels() == 1 || source.channels() == 1 {
                 Box::new(ChannelConverter::new(
-                    SampleRateConverter::new(source, mixer.sample_rate.0),
-                    mixer.channels,
+                    SampleRateConverter::new(source, mixer.sample_rate()),
+                    mixer.channels(),
                 ))
             } else {
-                return Err("Number of channels do not match the output, and neither are 1");
+                return Err("Number of channels() do not match the output, and neither are 1");
             }
-        } else if source.channels() == mixer.channels {
+        } else if source.channels() == mixer.channels() {
             Box::new(source)
-        } else if mixer.channels == 1 || source.channels() == 1 {
-            Box::new(ChannelConverter::new(source, mixer.channels))
+        } else if mixer.channels() == 1 || source.channels() == 1 {
+            Box::new(ChannelConverter::new(source, mixer.channels()))
         } else {
-            return Err("Number of channels do not match the output, and is not 1");
+            return Err("Number of channels() do not match the output, and is not 1");
         };
 
         let id = mixer.add_sound(sound);
