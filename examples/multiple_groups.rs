@@ -12,7 +12,7 @@ fn main() {
 
     let engine = AudioEngine::with_groups::<Groups>().unwrap();
 
-    // a half-step ration in the scale
+    // the freq ration of a semitone in twelve-tone equal temperament.
     let s = 2.0_f32.powf(1.0 / 12.0);
     // the note A.
     let la = 440.0;
