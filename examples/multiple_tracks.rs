@@ -1,4 +1,4 @@
-use audio_engine::{AudioEngine, OggDecoder};
+use audio_engine::{AudioEngine, OggDecoder, SineWave};
 use std::{io::Cursor, time::Instant};
 
 fn log_panic() {
@@ -34,38 +34,6 @@ fn log_panic() {
     }));
 }
 
-struct SineSource {
-    i: u32,
-    freq: f32,
-}
-
-impl SineSource {
-    fn new(freq: f32) -> Self {
-        Self { i: 0, freq }
-    }
-}
-
-impl audio_engine::SoundSource for SineSource {
-    fn sample_rate(&self) -> u32 {
-        44100
-    }
-    fn channels(&self) -> u16 {
-        1
-    }
-    fn reset(&mut self) {
-        self.i = 0
-    }
-    fn write_samples(&mut self, out: &mut [i16]) -> usize {
-        for o in out.iter_mut() {
-            let t = self.i as f32 / self.sample_rate() as f32;
-            let amplitude = (i16::max_value() / 4) as f32;
-            *o = ((self.freq * std::f32::consts::TAU * t).sin() * amplitude) as i16;
-            self.i += 1;
-        }
-        out.len()
-    }
-}
-
 #[cfg_attr(
     target_os = "android",
     ndk_glue::main(
@@ -88,7 +56,9 @@ fn main() {
     track1.set_loop(true);
     track1.play();
 
-    let mut track2 = engine.new_sound(SineSource::new(500.0)).unwrap();
+    let mut track2 = engine
+        .new_sound(SineWave::new(engine.sample_rate(), 500.0))
+        .unwrap();
     track2.set_loop(true);
     track2.play();
 

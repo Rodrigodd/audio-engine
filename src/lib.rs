@@ -26,6 +26,7 @@ use std::{
 
 pub mod converter;
 mod ogg;
+mod sine;
 mod wav;
 
 mod engine;
@@ -35,6 +36,7 @@ mod mixer;
 use mixer::Mixer;
 
 pub use ogg::OggDecoder;
+pub use sine::SineWave;
 pub use wav::WavDecoder;
 
 /// The number of samples processed per second for a single channel of audio.
