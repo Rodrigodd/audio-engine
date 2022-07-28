@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    hash::Hash,
+    sync::{Arc, Mutex},
+};
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -14,14 +17,17 @@ use backend::Backend;
 mod backend {
     use super::create_device;
     use crate::Mixer;
-    use std::sync::{Arc, Mutex};
+    use std::{
+        hash::Hash,
+        sync::{Arc, Mutex},
+    };
 
-    struct StreamEventLoop {
-        mixer: Arc<Mutex<Mixer>>,
+    struct StreamEventLoop<G: Eq + Hash + Send + 'static> {
+        mixer: Arc<Mutex<Mixer<G>>>,
         stream: Option<cpal::platform::Stream>,
     }
 
-    impl StreamEventLoop {
+    impl<G: Eq + Hash + Send + 'static> StreamEventLoop<G> {
         fn run(
             &mut self,
             event_channel: std::sync::mpsc::Sender<StreamEvent>,
@@ -80,7 +86,9 @@ mod backend {
         sender: std::sync::mpsc::Sender<StreamEvent>,
     }
     impl Backend {
-        pub(super) fn start(mixer: Arc<Mutex<Mixer>>) -> Result<Self, &'static str> {
+        pub(super) fn start<G: Eq + Hash + Send + 'static>(
+            mixer: Arc<Mutex<Mixer<G>>>,
+        ) -> Result<Self, &'static str> {
             let (sender, receiver) = std::sync::mpsc::channel::<StreamEvent>();
             let join = {
                 let sender = sender.clone();
@@ -137,9 +145,31 @@ mod backend {
 /// The main struct of the crate.
 ///
 /// This hold all existing `SoundSource`s and `cpal::platform::Stream`.
-pub struct AudioEngine {
-    mixer: Arc<Mutex<Mixer>>,
+///
+/// Each sound is associated with a group, which is purely used by
+/// [`set_group_volume`](AudioEngine::set_group_volume), to allow mixing multiple sounds together.
+pub struct AudioEngine<G: Eq + Hash + Send + 'static = ()> {
+    mixer: Arc<Mutex<Mixer<G>>>,
     _backend: Backend,
+}
+impl<G: Default + Eq + Hash + Send> AudioEngine<G> {
+    /// Create a new Sound in the default Group.
+    ///
+    /// Same as calling [`new_sound_with_group(G::default(), source)`](Self::new_sound_with_group).
+    ///
+    /// The added sound is started in stopped state, and [`play`](Sound::play) must be called to start playing
+    /// it.
+    ///
+    /// Return a `Err` if the number of channels doesn't match the output number of channels. If
+    /// the ouput number of channels is 1, or the number of channels of `source` is 1, `source`
+    /// will be automatic wrapped in a [`ChannelConverter`]. If the `sample_rate` of `source`
+    /// mismatch the output `sample_rate`, `source` will be wrapped in a [`SampleRateConverter`].
+    pub fn new_sound<T: SoundSource + Send + 'static>(
+        &self,
+        source: T,
+    ) -> Result<Sound<G>, &'static str> {
+        self.new_sound_with_group(G::default(), source)
+    }
 }
 impl AudioEngine {
     /// Tries to create a new AudioEngine.
@@ -147,15 +177,24 @@ impl AudioEngine {
     /// `cpal` will spawn a new thread where the sound samples will be sampled, mixed, and outputed
     /// to the output stream.
     pub fn new() -> Result<Self, &'static str> {
-        let mixer = Arc::new(Mutex::new(Mixer::new(2, super::SampleRate(48000))));
+        AudioEngine::with_groups::<()>()
+    }
+
+    /// Tries to create a new AudioEngine, with the given type to represent sound groups.
+    ///
+    /// `cpal` will spawn a new thread where the sound samples will be sampled, mixed, and outputed
+    /// to the output stream.
+    pub fn with_groups<G: Eq + Hash + Send>() -> Result<AudioEngine<G>, &'static str> {
+        let mixer = Arc::new(Mutex::new(Mixer::<G>::new(2, super::SampleRate(48000))));
         let backend = Backend::start(mixer.clone())?;
 
-        Ok(Self {
+        Ok(AudioEngine::<G> {
             mixer,
             _backend: backend,
         })
     }
-
+}
+impl<G: Eq + Hash + Send> AudioEngine<G> {
     /// The sample rate that is currently being outputed to the device.
     pub fn sample_rate(&self) -> u32 {
         self.mixer.lock().unwrap().sample_rate()
@@ -168,7 +207,7 @@ impl AudioEngine {
         self.mixer.lock().unwrap().channels()
     }
 
-    /// Create a new Sound.
+    /// Create a new Sound with the given Group.
     ///
     /// Return a `Err` if the number of channels doesn't match the output number of channels. If
     /// the ouput number of channels is 1, or the number of channels of `source` is 1, `source`
@@ -176,10 +215,11 @@ impl AudioEngine {
     ///
     /// If the `sample_rate` of `source` mismatch the output `sample_rate`, `source` will be
     /// wrapped in a [`SampleRateConverter`].
-    pub fn new_sound<T: SoundSource + Send + 'static>(
+    pub fn new_sound_with_group<T: SoundSource + Send + 'static>(
         &self,
+        group: G,
         source: T,
-    ) -> Result<Sound, &'static str> {
+    ) -> Result<Sound<G>, &'static str> {
         let mut mixer = self.mixer.lock().unwrap();
 
         let sound: Box<dyn SoundSource + Send> = if source.sample_rate() != mixer.sample_rate() {
@@ -201,7 +241,8 @@ impl AudioEngine {
             return Err("Number of channels() do not match the output, and is not 1");
         };
 
-        let id = mixer.add_sound(sound);
+        let id = mixer.add_sound(group, sound);
+        mixer.mark_to_remove(id, false);
         drop(mixer);
 
         Ok(Sound {
@@ -209,10 +250,17 @@ impl AudioEngine {
             id,
         })
     }
+
+    /// Set the volume of the given group.
+    ///
+    /// The volume of all sounds associated with this group is multiplied by this volume.
+    pub fn set_group_volume(&self, group: G, volume: f32) {
+        self.mixer.lock().unwrap().set_group_volume(group, volume)
+    }
 }
 
-fn create_device(
-    mixer: &Arc<Mutex<Mixer>>,
+fn create_device<G: Eq + Hash + Send + 'static>(
+    mixer: &Arc<Mutex<Mixer<G>>>,
     error_callback: impl FnMut(StreamError) + Send + Clone + 'static,
 ) -> Result<cpal::Stream, &'static str> {
     let host = cpal::default_host();
@@ -270,9 +318,9 @@ fn create_device(
         let stream = {
             use cpal::SampleFormat::*;
             match sample_format {
-                I16 => stream::<i16, _>(mixer, error_callback.clone(), &device, &config),
-                U16 => stream::<u16, _>(mixer, error_callback.clone(), &device, &config),
-                F32 => stream::<f32, _>(mixer, error_callback.clone(), &device, &config),
+                I16 => stream::<i16, G, _>(mixer, error_callback.clone(), &device, &config),
+                U16 => stream::<u16, G, _>(mixer, error_callback.clone(), &device, &config),
+                F32 => stream::<f32, G, _>(mixer, error_callback.clone(), &device, &config),
             }
         };
         let stream = match stream {
@@ -295,12 +343,17 @@ fn create_device(
     Ok(stream)
 }
 
-fn stream<T: cpal::Sample, E: FnMut(StreamError) + Send + 'static>(
-    mixer: &Arc<Mutex<Mixer>>,
+fn stream<T, G, E>(
+    mixer: &Arc<Mutex<Mixer<G>>>,
     error_callback: E,
     device: &cpal::Device,
     config: &cpal::StreamConfig,
-) -> Result<cpal::Stream, cpal::BuildStreamError> {
+) -> Result<cpal::Stream, cpal::BuildStreamError>
+where
+    T: cpal::Sample,
+    G: Eq + Hash + Send + 'static,
+    E: FnMut(StreamError) + Send + 'static,
+{
     let mixer = mixer.clone();
     let mut input_buffer = Vec::new();
     device.build_output_stream(

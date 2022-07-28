@@ -1,45 +1,57 @@
 use crate::{converter, SampleRate, SoundId, SoundSource};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    collections::HashMap,
+    hash::Hash,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 fn next_id() -> SoundId {
     static GLOBAL_COUNT: AtomicU64 = AtomicU64::new(0);
     GLOBAL_COUNT.fetch_add(1, Ordering::Relaxed)
 }
 
-struct SoundInner {
+struct SoundInner<G = ()> {
     id: SoundId,
     data: Box<dyn SoundSource + Send>,
     volume: f32,
+    group: G,
     looping: bool,
     drop: bool,
 }
-impl SoundInner {
-    fn new(data: Box<dyn SoundSource + Send>) -> Self {
+impl<G> SoundInner<G> {
+    fn new(group: G, data: Box<dyn SoundSource + Send>) -> Self {
         Self {
             id: next_id(),
             data,
             volume: 1.0,
+            group,
             looping: false,
-            drop: false,
+            drop: true,
         }
     }
 }
 
 /// Keep track of each Sound, and mix they output together.
-pub struct Mixer {
-    sounds: Vec<SoundInner>,
+pub struct Mixer<G: Eq + Hash + Send + 'static = ()> {
+    sounds: Vec<SoundInner<G>>,
     playing: usize,
     channels: u16,
     sample_rate: SampleRate,
+    group_volumes: HashMap<G, f32>,
 }
 
-impl Mixer {
+impl<G: Eq + Hash + Send + 'static> Mixer<G> {
+    /// Create a new Mixer.
+    ///
+    /// The created Mixer output samples with given sample rate and number of channels. This
+    /// configuration can be changed by calling [`set_config`](Self::set_config).
     pub fn new(channels: u16, sample_rate: SampleRate) -> Self {
         Self {
             sounds: vec![],
             playing: 0,
             channels,
             sample_rate,
+            group_volumes: HashMap::new(),
         }
     }
 
@@ -82,13 +94,21 @@ impl Mixer {
         self.sample_rate = sample_rate;
     }
 
-    pub fn add_sound(&mut self, sound: Box<dyn SoundSource + Send>) -> SoundId {
-        let sound_inner = SoundInner::new(sound);
+    /// Add new sound to the Mixer.
+    ///
+    /// Return the SoundId associated with that sound. This Id is globally unique.
+    ///
+    /// The added sound is started in stopped state, and [`play`](Self::play) must be called to start playing
+    /// it. [`mark_to_remove`](Self::mark_to_remove) is true by default.
+    pub fn add_sound(&mut self, group: G, sound: Box<dyn SoundSource + Send>) -> SoundId {
+        let sound_inner = SoundInner::new(group, sound);
         let id = sound_inner.id;
         self.sounds.push(sound_inner);
         id
     }
 
+    /// Start playing the sound associated with the given id.
+    ///
     /// If the sound was paused or stop, it will start playing again.
     /// Otherwise, does nothing.
     pub fn play(&mut self, id: SoundId) {
@@ -101,6 +121,8 @@ impl Mixer {
         }
     }
 
+    /// Pause the sound associated with the given id.
+    ///
     /// If the sound is playing, it will pause. If play is called,
     /// this sound will continue from where it was when paused.
     /// If the sound is not playing, does nothing.
@@ -114,8 +136,11 @@ impl Mixer {
         }
     }
 
+    /// Stop the sound associated with the given id.
+    ///
     /// If the sound is playing, it will pause and reset the song. When play is called,
     /// this sound will start from the begging.
+    ///
     /// Even if the sound is not playing, it will reset the sound to the start.
     pub fn stop(&mut self, id: SoundId) {
         for i in (0..self.sounds.len()).rev() {
@@ -130,6 +155,8 @@ impl Mixer {
         }
     }
 
+    /// Reset the sound associated with the given id.
+    ///
     /// This reset the sound to the start, the sound being playing or not.
     pub fn reset(&mut self, id: SoundId) {
         for i in (0..self.sounds.len()).rev() {
@@ -140,7 +167,10 @@ impl Mixer {
         }
     }
 
-    /// Set the volume of the sound.
+    /// Set the volume of the sound associated with the given id.
+    ///
+    /// The output samples of the SoundSource assicociated with the given id will be multiplied by
+    /// this volume.
     pub fn set_volume(&mut self, id: SoundId, volume: f32) {
         for i in (0..self.sounds.len()).rev() {
             if self.sounds[i].id == id {
@@ -150,7 +180,18 @@ impl Mixer {
         }
     }
 
-    /// Set if the sound will repeat ever time it reach the end.
+    /// Set the volume of the given group.
+    ///
+    /// The volume of all sounds associated with this group is multiplied by this volume.
+    pub fn set_group_volume(&mut self, group: G, volume: f32) {
+        self.group_volumes.insert(group, volume);
+    }
+
+    /// Set if the sound associated with the given id will loop.
+    ///
+    /// If true, ever time the sound reachs its end, it will reset, and continue to play in a loop.
+    ///
+    /// This also set [`mark_to_remove`](Self::mark_to_remove) to false.
     pub fn set_loop(&mut self, id: SoundId, looping: bool) {
         for i in (0..self.sounds.len()).rev() {
             if self.sounds[i].id == id {
@@ -160,18 +201,22 @@ impl Mixer {
         }
     }
 
-    /// Mark the sound to be dropped after it reach the end.
-    pub fn drop_sound(&mut self, id: SoundId) {
+    /// Mark if the sound will be removed after it reachs its end.
+    ///
+    /// If false, it will be possible to reset the sound and play it again after it has already
+    /// reached its end. Otherwise, the sound will be removed when it reachs its end, even if it is
+    /// marked to loop.
+    pub fn mark_to_remove(&mut self, id: SoundId, drop: bool) {
         for i in (0..self.sounds.len()).rev() {
             if self.sounds[i].id == id {
-                self.sounds[i].drop = true;
+                self.sounds[i].drop = drop;
                 break;
             }
         }
     }
 }
 
-impl SoundSource for Mixer {
+impl<G: Eq + Hash + Send + 'static> SoundSource for Mixer<G> {
     fn channels(&self) -> u16 {
         self.channels
     }
@@ -205,14 +250,19 @@ impl SoundSource for Mixer {
                 break;
             }
 
-            if (self.sounds[s].volume - 1.0).abs() < 1.0 / i16::max_value() as f32 {
+            let group_volume = *self
+                .group_volumes
+                .get(&self.sounds[s].group)
+                .unwrap_or(&1.0);
+            let volume = self.sounds[s].volume * group_volume;
+
+            if (volume - 1.0).abs() < 1.0 / i16::max_value() as f32 {
                 for i in 0..len {
                     buffer[i] = buffer[i].saturating_add(buf[i]);
                 }
             } else {
                 for i in 0..len {
-                    buffer[i] =
-                        buffer[i].saturating_add((buf[i] as f32 * self.sounds[s].volume) as i16);
+                    buffer[i] = buffer[i].saturating_add((buf[i] as f32 * volume) as i16);
                 }
             }
 

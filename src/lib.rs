@@ -19,7 +19,10 @@
 //! # }
 //! ```
 
-use std::sync::{Arc, Mutex};
+use std::{
+    hash::Hash,
+    sync::{Arc, Mutex},
+};
 
 pub mod converter;
 mod ogg;
@@ -40,35 +43,37 @@ pub struct SampleRate(pub u32);
 
 type SoundId = u64;
 
-/// Represents a sound in the AudioEngine. If this is dropped, the sound will continue to play
-/// until it ends.
-pub struct Sound {
-    mixer: Arc<Mutex<Mixer>>,
+/// Represents a sound in the AudioEngine.
+///
+/// If this is dropped, the sound will continue to play, but will be removed
+/// when it reachs its ends, even if it is set to loop.
+pub struct Sound<G: Eq + Hash + Send + 'static = ()> {
+    mixer: Arc<Mutex<Mixer<G>>>,
     id: SoundId,
 }
-impl Sound {
+impl<G: Eq + Hash + Send + 'static> Sound<G> {
     /// Starts or continue to play the sound.
     ///
-    /// If the sound was paused or stop, it will start playing again.
-    /// Otherwise, does nothing.
+    /// If the sound was paused or stop, it will start playing again. Otherwise,
+    /// does nothing.
     pub fn play(&mut self) {
         self.mixer.lock().unwrap().play(self.id);
     }
 
     /// Pause the sound.
     ///
-    /// If the sound is playing, it will pause. If play is called,
-    /// this sound will continue from where it was before pause.
-    /// If the sound is not playing, does nothing.
+    /// If the sound is playing, it will pause. If play is called, this sound
+    /// will continue from where it was before pause. If the sound is not
+    /// playing, does nothing.
     pub fn pause(&mut self) {
         self.mixer.lock().unwrap().pause(self.id);
     }
 
     /// Stop the sound.
     ///
-    /// If the sound is playing, it will pause and reset the song. When play is called,
-    /// this sound will start from the begging.
-    /// Even if the sound is not playing, it will reset the sound to the start.
+    /// If the sound is playing, it will pause and reset the song. When play is
+    /// called, this sound will start from the beginning. Even if the sound is not
+    /// playing, it will reset the sound to the start.
     pub fn stop(&mut self) {
         self.mixer.lock().unwrap().stop(self.id);
     }
@@ -85,14 +90,14 @@ impl Sound {
         self.mixer.lock().unwrap().set_volume(self.id, volume);
     }
 
-    /// Set if the sound will repeat even time it reach the end.
+    /// Set if the sound will repeat ever time it reachs its end.
     pub fn set_loop(&mut self, looping: bool) {
         self.mixer.lock().unwrap().set_loop(self.id, looping);
     }
 }
-impl Drop for Sound {
+impl<G: Eq + Hash + Send + 'static> Drop for Sound<G> {
     fn drop(&mut self) {
-        self.mixer.lock().unwrap().drop_sound(self.id);
+        self.mixer.lock().unwrap().mark_to_remove(self.id, true);
     }
 }
 
