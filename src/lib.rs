@@ -9,11 +9,11 @@
 //! ## Example
 //!
 //! ```no_run
-//! # fn main() -> Result<(), &'static str> {
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let my_wav_sound = std::io::Cursor::new(vec![]);
 //! use audio_engine::{AudioEngine, WavDecoder};
 //! let audio_engine = AudioEngine::new()?;
-//! let mut sound = audio_engine.new_sound(WavDecoder::new(my_wav_sound))?;
+//! let mut sound = audio_engine.new_sound(WavDecoder::new(my_wav_sound)?)?;
 //! sound.play();
 //! # Ok(())
 //! # }
