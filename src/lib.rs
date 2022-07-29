@@ -142,3 +142,20 @@ impl<T: SoundSource + ?Sized> SoundSource for Box<T> {
         (**self).write_samples(buffer)
     }
 }
+impl<T: SoundSource + ?Sized> SoundSource for Arc<Mutex<T>> {
+    fn channels(&self) -> u16 {
+        (*self).lock().unwrap().channels()
+    }
+
+    fn sample_rate(&self) -> u32 {
+        (*self).lock().unwrap().sample_rate()
+    }
+
+    fn reset(&mut self) {
+        (*self).lock().unwrap().reset()
+    }
+
+    fn write_samples(&mut self, buffer: &mut [i16]) -> usize {
+        (*self).lock().unwrap().write_samples(buffer)
+    }
+}
