@@ -184,6 +184,33 @@ impl AudioEngine {
     ///
     /// `cpal` will spawn a new thread where the sound samples will be sampled, mixed, and outputed
     /// to the output stream.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), &'static str> {
+    /// # let my_fx = audio_engine::SineWave::new(44100, 500.0);
+    /// # let my_music = audio_engine::SineWave::new(44100, 440.0);
+    /// use audio_engine::{AudioEngine, WavDecoder};
+    ///
+    /// #[derive(Eq, Hash, PartialEq)]
+    /// enum Group {
+    ///     Effect,
+    ///     Music,
+    /// }
+    ///
+    /// let audio_engine = AudioEngine::with_groups::<Group>()?;
+    /// let mut fx = audio_engine.new_sound_with_group(Group::Effect, my_fx)?;
+    /// let mut music = audio_engine.new_sound_with_group(Group::Music, my_music)?;
+    ///
+    /// fx.play();
+    /// music.play();
+    ///
+    /// // decrease music volume, for example
+    /// audio_engine.set_group_volume(Group::Music, 0.1);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn with_groups<G: Eq + Hash + Send>() -> Result<AudioEngine<G>, &'static str> {
         let mixer = Arc::new(Mutex::new(Mixer::<G>::new(2, super::SampleRate(48000))));
         let backend = Backend::start(mixer.clone())?;
