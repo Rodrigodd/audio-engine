@@ -141,12 +141,17 @@ impl<G: Eq + Hash + Send + 'static> Mixer<G> {
     /// If the sound is playing, it will pause and reset the song. When play is called,
     /// this sound will start from the begging.
     ///
-    /// Even if the sound is not playing, it will reset the sound to the start.
+    /// Even if the sound is not playing, it will reset the sound to the start. If the sound is
+    /// [marked to be removed](Self::mark_to_remove), this sound will be removed from the Mixer.
     pub fn stop(&mut self, id: SoundId) {
         for i in (0..self.sounds.len()).rev() {
             if self.sounds[i].id == id {
-                self.sounds[i].data.reset();
-                if i < self.playing {
+                if self.sounds[i].drop {
+                    self.sounds.swap_remove(i);
+                } else {
+                    self.sounds[i].data.reset();
+                }
+                if i < self.playing && self.playing < self.sounds.len() {
                     self.playing -= 1;
                     self.sounds.swap(self.playing, i);
                 }
@@ -214,6 +219,20 @@ impl<G: Eq + Hash + Send + 'static> Mixer<G> {
             }
         }
     }
+
+    /// The number of sounds in the mixer.
+    ///
+    /// This include the sounds that are currently stopped.
+    pub fn sound_count(&self) -> usize {
+        self.sounds.len()
+    }
+
+    /// The number of sounds being played currently.
+    ///
+    /// Does not include the sounds that are currently stopped.
+    pub fn playing_count(&self) -> usize {
+        self.playing
+    }
 }
 
 impl<G: Eq + Hash + Send + 'static> SoundSource for Mixer<G> {
@@ -273,8 +292,6 @@ impl<G: Eq + Hash + Send + 'static> SoundSource for Mixer<G> {
                 self.playing -= 1;
                 if self.playing > 0 && self.playing < self.sounds.len() {
                     self.sounds.swap(s, self.playing);
-                } else {
-                    break;
                 }
             } else {
                 s += 1;
@@ -282,5 +299,200 @@ impl<G: Eq + Hash + Send + 'static> SoundSource for Mixer<G> {
         }
 
         buffer.len()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::SoundSource;
+
+    use super::Mixer;
+
+    struct DebugSource {
+        i: usize,
+        v: i16,
+        len: usize,
+    }
+    impl DebugSource {
+        fn new(v: i16, len: usize) -> Self {
+            Self { i: 0, v, len }
+        }
+    }
+    impl SoundSource for DebugSource {
+        fn channels(&self) -> u16 {
+            1
+        }
+
+        fn sample_rate(&self) -> u32 {
+            1
+        }
+
+        fn reset(&mut self) {
+            self.i = 0;
+        }
+
+        fn write_samples(&mut self, buffer: &mut [i16]) -> usize {
+            for (i, o) in buffer.iter_mut().enumerate() {
+                *o = self.v;
+                self.i += 1;
+                if self.i > self.len {
+                    return i;
+                }
+            }
+            buffer.len()
+        }
+    }
+
+    #[test]
+    fn start_stopped() {
+        let mut mixer = Mixer::new(1, crate::SampleRate(1));
+
+        // create new sound
+        let id = mixer.add_sound((), Box::new(DebugSource::new(2, 5)));
+
+        // sound start in stopped state
+        let mut buffer = [0; 10];
+        assert_eq!(mixer.write_samples(&mut buffer), 10);
+        assert_eq!(buffer, [0; 10]);
+
+        // play the sound
+        mixer.play(id);
+        assert_eq!(mixer.write_samples(&mut buffer), 10);
+        assert_eq!(buffer, [2, 2, 2, 2, 2, 0, 0, 0, 0, 0]);
+
+        // mark to remove is true, sound was removed
+        mixer.reset(id);
+        mixer.play(id);
+        assert_eq!(mixer.write_samples(&mut buffer), 10);
+        assert_eq!(buffer, [0; 10]);
+
+        // create new sound
+        let id = mixer.add_sound((), Box::new(DebugSource::new(2, 5)));
+
+        mixer.stop(id);
+    }
+
+    #[test]
+    fn mark_to_remove_true() {
+        let mut mixer = Mixer::new(1, crate::SampleRate(1));
+
+        // create new sound
+        let id = mixer.add_sound((), Box::new(DebugSource::new(2, 5)));
+
+        // stop the sound will remove the sound if marked to remove is true
+        mixer.stop(id);
+
+        // mark to remove is true, sound was removed
+        mixer.reset(id);
+        mixer.play(id);
+        let mut buffer = [0; 10];
+        assert_eq!(mixer.write_samples(&mut buffer), 10);
+        assert_eq!(buffer, [0; 10]);
+    }
+
+    #[test]
+    fn mark_to_remove_false() {
+        let mut mixer = Mixer::new(1, crate::SampleRate(1));
+
+        let id = mixer.add_sound((), Box::new(DebugSource::new(2, 5)));
+        mixer.mark_to_remove(id, false);
+
+        // stop the sound will not remove the sound if marked to remove is false
+        mixer.stop(id);
+
+        // sound start in stopped state
+        let mut buffer = [0; 10];
+        assert_eq!(mixer.write_samples(&mut buffer), 10);
+        assert_eq!(buffer, [0; 10]);
+
+        // play the sound
+        mixer.play(id);
+        assert_eq!(mixer.playing_count(), 1);
+        assert_eq!(mixer.write_samples(&mut buffer), 10);
+        assert_eq!(buffer, [2, 2, 2, 2, 2, 0, 0, 0, 0, 0]);
+
+        // mark to remove is false
+        mixer.play(id);
+        buffer = [0; 10];
+        assert_eq!(mixer.playing_count(), 1);
+        assert_eq!(mixer.write_samples(&mut buffer), 10);
+        assert_eq!(buffer, [2, 2, 2, 2, 2, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn volume() {
+        let mut mixer = Mixer::new(1, crate::SampleRate(1));
+
+        let id0 = mixer.add_sound((), Box::new(DebugSource::new(10, 2)));
+        let id1 = mixer.add_sound((), Box::new(DebugSource::new(10, 4)));
+        let id2 = mixer.add_sound((), Box::new(DebugSource::new(10, 6)));
+
+        mixer.set_volume(id0, 0.2);
+        mixer.set_volume(id1, 0.4);
+        mixer.set_volume(id2, 0.8);
+
+        mixer.play(id0);
+        mixer.play(id1);
+        mixer.play(id2);
+
+        let mut buffer = [0; 10];
+        assert_eq!(mixer.write_samples(&mut buffer), 10);
+        assert_eq!(buffer, [14, 14, 12, 12, 8, 8, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn group_volume() {
+        #[derive(Eq, Hash, PartialEq)]
+        enum Group {
+            A,
+            B,
+        }
+
+        let mut mixer = Mixer::new(1, crate::SampleRate(1));
+
+        let a0 = mixer.add_sound(Group::A, Box::new(DebugSource::new(10, 2)));
+        let a1 = mixer.add_sound(Group::A, Box::new(DebugSource::new(10, 4)));
+        let a2 = mixer.add_sound(Group::A, Box::new(DebugSource::new(10, 6)));
+
+        let b0 = mixer.add_sound(Group::B, Box::new(DebugSource::new(10, 8)));
+        let b1 = mixer.add_sound(Group::B, Box::new(DebugSource::new(10, 10)));
+        let b2 = mixer.add_sound(Group::B, Box::new(DebugSource::new(10, 12)));
+
+        mixer.set_volume(a0, 0.2);
+        mixer.set_volume(a1, 0.4);
+        mixer.set_volume(a2, 0.8);
+
+        mixer.set_volume(b0, 0.2);
+        mixer.set_volume(b1, 0.4);
+        mixer.set_volume(b2, 0.8);
+
+        mixer.set_group_volume(Group::A, 2.0);
+        mixer.set_group_volume(Group::B, 4.0);
+
+        assert_eq!(mixer.sound_count(), 6);
+        assert_eq!(mixer.playing_count(), 0);
+
+        mixer.play(a0);
+        mixer.play(a1);
+        mixer.play(a2);
+
+        mixer.play(b0);
+        mixer.play(b1);
+        mixer.play(b2);
+
+        assert_eq!(mixer.sound_count(), 6);
+        assert_eq!(mixer.playing_count(), 6);
+
+        let mut buffer = [0; 10];
+        assert_eq!(mixer.write_samples(&mut buffer), 10);
+        // 28 + 56
+        assert_eq!(buffer, [84, 84, 80, 80, 72, 72, 56, 56, 48, 48]);
+        buffer = [0; 10];
+        assert_eq!(mixer.write_samples(&mut buffer), 10);
+        // 28 + 56
+        assert_eq!(buffer, [32, 32, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+        assert_eq!(mixer.sound_count(), 0);
+        assert_eq!(mixer.playing_count(), 0);
     }
 }
