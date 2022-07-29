@@ -33,7 +33,7 @@ mod engine;
 pub use engine::AudioEngine;
 
 mod mixer;
-use mixer::Mixer;
+pub use mixer::Mixer;
 
 pub use ogg::OggDecoder;
 pub use sine::SineWave;

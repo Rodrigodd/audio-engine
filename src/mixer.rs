@@ -172,6 +172,20 @@ impl<G: Eq + Hash + Send + 'static> Mixer<G> {
         }
     }
 
+    /// Set if the sound associated with the given id will loop.
+    ///
+    /// If true, ever time the sound reachs its end, it will reset, and continue to play in a loop.
+    ///
+    /// This also set [`mark_to_remove`](Self::mark_to_remove) to false.
+    pub fn set_loop(&mut self, id: SoundId, looping: bool) {
+        for i in (0..self.sounds.len()).rev() {
+            if self.sounds[i].id == id {
+                self.sounds[i].looping = looping;
+                break;
+            }
+        }
+    }
+
     /// Set the volume of the sound associated with the given id.
     ///
     /// The output samples of the SoundSource assicociated with the given id will be multiplied by
@@ -190,20 +204,6 @@ impl<G: Eq + Hash + Send + 'static> Mixer<G> {
     /// The volume of all sounds associated with this group is multiplied by this volume.
     pub fn set_group_volume(&mut self, group: G, volume: f32) {
         self.group_volumes.insert(group, volume);
-    }
-
-    /// Set if the sound associated with the given id will loop.
-    ///
-    /// If true, ever time the sound reachs its end, it will reset, and continue to play in a loop.
-    ///
-    /// This also set [`mark_to_remove`](Self::mark_to_remove) to false.
-    pub fn set_loop(&mut self, id: SoundId, looping: bool) {
-        for i in (0..self.sounds.len()).rev() {
-            if self.sounds[i].id == id {
-                self.sounds[i].looping = looping;
-                break;
-            }
-        }
     }
 
     /// Mark if the sound will be removed after it reachs its end.
