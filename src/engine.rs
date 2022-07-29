@@ -362,7 +362,7 @@ where
             input_buffer.clear();
             input_buffer.resize(output_buffer.len(), 0);
             mixer.lock().unwrap().write_samples(&mut input_buffer);
-            // write  sample to output buffer
+            // convert the samples from i16 to T, and write them in the output buffer.
             output_buffer
                 .iter_mut()
                 .zip(input_buffer.iter())
