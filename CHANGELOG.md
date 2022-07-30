@@ -4,7 +4,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-# Unreleased
+# [0.4.0] - Unreleased
+
+### Added
+
+- Make `Mixer` be public.
+- implement `SoundSource` for `Arc<Mutex<T>>`.
+- Add the `SineWave` `SoundSource`.
+- Add sound groups to AudioEngine:
+
+``` rust
+use audio_engine::{AudioEngine, WavDecoder};
+
+#[derive(Eq, Hash, PartialEq)]
+enum Group {
+    Effect,
+    Music,
+}
+
+let audio_engine = AudioEngine::with_groups::<Group>()?;
+let mut fx = audio_engine.new_sound_with_group(Group::Effect, my_fx)?;
+let mut music = audio_engine.new_sound_with_group(Group::Music, my_music)?;
+
+fx.play();
+music.play();
+
+// decrease music volume, for example
+audio_engine.set_group_volume(Group::Music, 0.1);
+```
 
 ### Fixed
 
