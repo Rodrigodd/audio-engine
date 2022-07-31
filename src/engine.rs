@@ -119,15 +119,20 @@ mod backend {
 mod backend {
     use super::create_device;
     use crate::Mixer;
-    use std::sync::{Arc, Mutex};
+    use std::{
+        hash::Hash,
+        sync::{Arc, Mutex},
+    };
 
     pub struct Backend {
         _stream: cpal::Stream,
     }
     impl Backend {
-        pub(super) fn start(mixer: Arc<Mutex<Mixer>>) -> Result<Self, &'static str> {
+        pub(super) fn start<G: Eq + Hash + Send + 'static>(
+            mixer: Arc<Mutex<Mixer<G>>>,
+        ) -> Result<Self, &'static str> {
             // On Wasm backend, I cannot created a second thread to handle stream errors, but
-            // errors in the wasm backend (AudioContext) is unexpected. In fact, cpal don't create
+            // errors in the wasm backend (AudioContext) is unexpected. In fact, cpal doesn't create
             // any StreamError in its wasm backend.
             let stream = create_device(&mixer, |err| log::error!("stream error: {err}"));
             let stream = match stream {
