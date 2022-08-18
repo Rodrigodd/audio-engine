@@ -70,7 +70,14 @@ mod backend {
                         };
                         self.stream = Some(stream);
                     }
-                    StreamEvent::Drop => return,
+                    StreamEvent::Drop => {
+                        // Droping the stream is unsound in android, see:
+                        // https://github.com/katyo/oboe-rs/issues/41
+                        #[cfg(target_os = "android")]
+                        std::mem::forget(self.stream.take());
+
+                        return;
+                    }
                 }
             }
         }
