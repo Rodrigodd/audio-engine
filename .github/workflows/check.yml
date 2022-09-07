@@ -1,0 +1,38 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install alsa
+      run: sudo apt-get install libasound2-dev
+
+    - name: Check native
+      run: cargo check --message-format=short
+
+    - name: Run tests
+      run: cargo test --verbose
+
+    - name: Add targets
+      run: rustup target add aarch64-linux-android wasm32-unknown-unknown
+
+    - name: Check wasm
+      run: cargo check --target=wasm32-unknown-unknown
+
+    - name: Install cargo apk
+      run: cargo install cargo-apk
+
+    - name: Check android
+      run: cargo apk check
