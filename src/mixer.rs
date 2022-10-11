@@ -151,7 +151,7 @@ impl<G: Eq + Hash + Send + 'static> Mixer<G> {
                 } else {
                     self.sounds[i].data.reset();
                 }
-                if i < self.playing && self.playing < self.sounds.len() {
+                if i < self.playing {
                     self.playing -= 1;
                     self.sounds.swap(self.playing, i);
                 }
