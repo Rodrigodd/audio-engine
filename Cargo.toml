@@ -14,6 +14,13 @@ build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+
+ogg = ["dep:lewton"]
+wav = ["dep:hound"]
+
+default = ["ogg", "wav"]
+
 [[example]]
 name = "music"
 crate-type = ["cdylib"]
@@ -21,10 +28,11 @@ path = "examples/music.rs"
 
 [dependencies]
 gcd = "2"
-lewton = "0.10"
-hound = "3"
 cpal = { version = "0.14.0", features = ["wasm-bindgen"] }
 log = "0.4.17"
+
+lewton = { version = "0.10", optional = true }
+hound = { version = "3.5", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-glue = { version = "0.6", features = ["logger"] }
