@@ -267,14 +267,16 @@ impl<G: Eq + Hash + Send> AudioEngine<G> {
         self.mixer.lock().unwrap().channels()
     }
 
-    /// Create a new Sound with the given Group.
+    /// Add a new Sound with the given Group.
     ///
-    /// Return a `Err` if the number of channels doesn't match the output number of channels. If
-    /// the ouput number of channels is 1, or the number of channels of `source` is 1, `source`
-    /// will be automatic wrapped in a [`ChannelConverter`].
+    /// The added sound starts in the stopped state, and [`play`](Sound::play) must be called to
+    /// start playing it.
     ///
-    /// If the `sample_rate` of `source` mismatch the output `sample_rate`, `source` will be
-    /// wrapped in a [`SampleRateConverter`].
+    /// If the [number of channels](SoundSource::channels) of `source` mismatch the [output number of
+    /// channel](Self::channels), `source` will be wrapped in a [`ChannelConverter`].
+    ///
+    /// If the [sample rate](SoundSource::sample_rate) of `source` mismatch the [output
+    /// sample rate](Self::sample_rate), `source` will be wrapped in a [`SampleRateConverter`].
     pub fn new_sound_with_group<T: SoundSource + Send + 'static>(
         &self,
         group: G,
@@ -285,20 +287,16 @@ impl<G: Eq + Hash + Send> AudioEngine<G> {
         let sound: Box<dyn SoundSource + Send> = if source.sample_rate() != mixer.sample_rate() {
             if source.channels() == mixer.channels() {
                 Box::new(SampleRateConverter::new(source, mixer.sample_rate()))
-            } else if mixer.channels() == 1 || source.channels() == 1 {
+            } else {
                 Box::new(ChannelConverter::new(
                     SampleRateConverter::new(source, mixer.sample_rate()),
                     mixer.channels(),
                 ))
-            } else {
-                return Err("Number of channels() do not match the output, and neither are 1");
             }
         } else if source.channels() == mixer.channels() {
             Box::new(source)
-        } else if mixer.channels() == 1 || source.channels() == 1 {
-            Box::new(ChannelConverter::new(source, mixer.channels()))
         } else {
-            return Err("Number of channels() do not match the output, and is not 1");
+            Box::new(ChannelConverter::new(source, mixer.channels()))
         };
 
         let id = mixer.add_sound(group, sound);

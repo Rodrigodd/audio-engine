@@ -7,7 +7,7 @@ use std::vec;
 mod test {
     use crate::SoundSource;
 
-    use super::SampleRateConverter;
+    use super::{ChannelConverter, SampleRateConverter};
 
     struct BufferSource {
         sample_rate: u32,
@@ -130,15 +130,120 @@ mod test {
         let len = outer.write_samples(&mut output[..]);
         assert_eq!(len, 0);
     }
+
+    #[test]
+    fn channels_1_3() {
+        let inner = BufferSource {
+            sample_rate: 30,
+            channels: 1,
+            buffer: vec![-2, -1, 0, 1, 2],
+            i: 0,
+        };
+
+        let out_channels = 3;
+
+        let mut output = vec![0; 3 * 5];
+        let mut outer = ChannelConverter::new(inner, out_channels);
+
+        outer.write_samples(&mut output);
+
+        assert_eq!(output, [-2, -2, -2, -1, -1, -1, 0, 0, 0, 1, 1, 1, 2, 2, 2]);
+    }
+
+    #[test]
+    fn channels_3_1() {
+        let inner = BufferSource {
+            sample_rate: 30,
+            channels: 3,
+            buffer: vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
+            i: 0,
+        };
+
+        let mut output = vec![0; 3];
+        let mut outer = ChannelConverter::new(inner, 1);
+
+        outer.write_samples(&mut output);
+
+        assert_eq!(output, [2, 5, 8]);
+    }
+
+    #[test]
+    fn channels_2_2() {
+        let inner = BufferSource {
+            sample_rate: 30,
+            channels: 2,
+            buffer: vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
+            i: 0,
+        };
+
+        let input = inner.buffer.clone();
+        let mut output = vec![0; inner.buffer.len()];
+        let mut outer = ChannelConverter::new(inner, 2);
+        outer.write_samples(&mut output);
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn channels_4_5() {
+        let inner = BufferSource {
+            sample_rate: 30,
+            channels: 4,
+            buffer: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            i: 0,
+        };
+        let mut output = vec![0; inner.buffer.len() / 4 * 5];
+        let mut outer = ChannelConverter::new(inner, 5);
+        outer.write_samples(&mut output);
+        assert_eq!(output, &[2, 2, 2, 2, 2, 6, 6, 6, 6, 6, 10, 10, 10, 10, 10,]);
+    }
+
+    #[test]
+    fn channels_5_3() {
+        let inner = BufferSource {
+            sample_rate: 30,
+            channels: 5,
+            buffer: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            i: 0,
+        };
+        let mut output = vec![0; inner.buffer.len() / 5 * 3];
+        let mut outer = ChannelConverter::new(inner, 3);
+        outer.write_samples(&mut output);
+        assert_eq!(output, &[3, 3, 3, 8, 8, 8, 13, 13, 13]);
+
+        let inner = BufferSource {
+            sample_rate: 30,
+            channels: 5,
+            buffer: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            i: 0,
+        };
+        let mut output = vec![0; 3];
+        let mut outer = ChannelConverter::new(inner, 3);
+        let len = outer.write_samples(&mut output);
+        assert_eq!(output, &[3, 3, 3]);
+        assert_eq!(len, 3);
+        let len = outer.write_samples(&mut output);
+        assert_eq!(output, &[8, 8, 8]);
+        assert_eq!(len, 3);
+        let len = outer.write_samples(&mut output);
+        assert_eq!(output, &[13, 13, 13]);
+        assert_eq!(len, 3);
+        let len = outer.write_samples(&mut output);
+        assert_eq!(&output[..len], &[]);
+        assert_eq!(len, 0);
+    }
 }
 
 /// Convert a SoundSource to a diferent number of channels.
 ///
-/// This struct is able to convert from 1 channel to many (by duplicating the signal), or from many
-/// channels to 1 (by averaging all channels). This panics for any other combination.
+/// If the number of channels in the inner SoundSource is equal to the output number of channels,
+/// no conversion will be performed. Otherwise, each channel of the output will receive the average
+/// of all input channels.
 pub struct ChannelConverter<T: SoundSource> {
     inner: T,
+    /// The number of channels to convert to.
     channels: u16,
+    /// A buffer to temporary hold the input samples.
+    in_buffer: Vec<i16>,
 }
 impl<T: SoundSource> ChannelConverter<T> {
     /// Create a new ChannelConverter.
@@ -146,7 +251,11 @@ impl<T: SoundSource> ChannelConverter<T> {
     /// This will convert from the number of channels of `inner`, outputing the given number of
     /// `channels`.
     pub fn new(inner: T, channels: u16) -> Self {
-        Self { inner, channels }
+        Self {
+            inner,
+            channels,
+            in_buffer: Vec::new(),
+        }
     }
 }
 impl<T: SoundSource> SoundSource for ChannelConverter<T> {
@@ -159,32 +268,59 @@ impl<T: SoundSource> SoundSource for ChannelConverter<T> {
     fn reset(&mut self) {
         self.inner.reset()
     }
-    fn write_samples(&mut self, buffer: &mut [i16]) -> usize {
-        if self.inner.channels() == 1 {
-            let len = buffer.len() / self.channels as usize;
-            let len = self.inner.write_samples(&mut buffer[0..len]);
+    fn write_samples(&mut self, out_buffer: &mut [i16]) -> usize {
+        let out_channels = self.channels as usize;
+        let in_channels = self.inner.channels() as usize;
 
-            for i in (0..len).rev() {
-                for c in 0..self.channels as usize {
-                    buffer[i * self.channels as usize + c] = buffer[i];
+        use std::cmp::Ordering;
+        match in_channels.cmp(&out_channels) {
+            Ordering::Equal => self.inner.write_samples(out_buffer),
+            Ordering::Less => {
+                // To avoid a allocation, the input samples will be written to `out_buffer`, and
+                // then converted to output samples.
+                let in_len = out_buffer.len() / out_channels * in_channels;
+                let in_len = self.inner.write_samples(&mut out_buffer[0..in_len]);
+
+                let mut sum: i32 = 0;
+                for i in (0..in_len).rev() {
+                    sum += out_buffer[i] as i32;
+                    if i % in_channels == 0 {
+                        let frame_index = i / in_channels * out_channels;
+                        let mean = (sum / in_channels as i32) as i16;
+                        for c in 0..out_channels {
+                            out_buffer[frame_index + c] = mean;
+                        }
+                        sum = 0;
+                    }
                 }
+                in_len * out_channels / in_channels
             }
-            len * self.channels as usize
-        } else if self.channels == 1 {
-            let mut in_buffer = vec![0i16; buffer.len() * self.inner.channels() as usize];
-            let len = self.inner.write_samples(&mut in_buffer);
-            let mut sum: i32 = 0;
-            for i in 0..len {
-                sum += in_buffer[i] as i32;
-                if (i + 1) % self.inner.channels() as usize == 0 {
-                    buffer[i / self.inner.channels() as usize] =
-                        (sum / self.inner.channels() as i32) as i16;
-                    sum = 0;
+            Ordering::Greater => {
+                // There are more input samples than output samples, so the allocation avoidance of
+                // the previous arm does not work.
+                let in_buffer = {
+                    let len = out_buffer.len() / out_channels * in_channels;
+                    if len > self.in_buffer.len() {
+                        self.in_buffer.resize(len, 0);
+                    }
+                    &mut self.in_buffer[0..len]
+                };
+                let in_len = self.inner.write_samples(in_buffer);
+
+                let mut sum: i32 = 0;
+                for (i, &in_sample) in in_buffer[0..in_len].iter().enumerate() {
+                    sum += in_sample as i32;
+                    if (i + 1) % in_channels == 0 {
+                        let frame_index = i / in_channels * out_channels;
+                        let mean = (sum / in_channels as i32) as i16;
+                        for c in 0..out_channels {
+                            out_buffer[frame_index + c] = mean;
+                        }
+                        sum = 0;
+                    }
                 }
+                in_len * out_channels / in_channels
             }
-            len / self.inner.channels() as usize
-        } else {
-            unimplemented!("ChannelConventer only convert from 1 channel, or to 1 channel")
         }
     }
 }
