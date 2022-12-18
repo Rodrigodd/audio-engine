@@ -65,6 +65,7 @@ impl<T: Seek + Read + Send + 'static> SoundSource for WavDecoder<T> {
         let sample_format = self.reader.spec().sample_format;
         let bits_per_sample = self.reader.spec().bits_per_sample;
         match (sample_format, bits_per_sample) {
+            // Float (always 32 bit, unclear if WAV supports floats with different bit-depth, but hound does not)
             (hound::SampleFormat::Float, _) => self.inner_write_sample(buffer, f32_to_i16),
             // 24bit or 32bit
             (hound::SampleFormat::Int, x) if x > 16 => {
