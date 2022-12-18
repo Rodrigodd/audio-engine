@@ -278,6 +278,12 @@ impl<G: Eq + Hash + Send> AudioEngine<G> {
     ) -> Result<Sound<G>, &'static str> {
         let mut mixer = self.mixer.lock().unwrap();
 
+        log::debug!(
+            "adding sound: channels {}, sample_rate {}",
+            source.channels(),
+            mixer.channels()
+        );
+
         let sound: Box<dyn SoundSource + Send> = if source.sample_rate() != mixer.sample_rate() {
             if source.channels() == mixer.channels() {
                 Box::new(SampleRateConverter::new(source, mixer.sample_rate()))
