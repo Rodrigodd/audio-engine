@@ -175,17 +175,11 @@ pub struct AudioEngine<G: Eq + Hash + Send + 'static = ()> {
     _backend: Backend,
 }
 impl<G: Default + Eq + Hash + Send> AudioEngine<G> {
-    /// Create a new Sound in the default Group.
+    /// Add a new Sound in the default Group.
     ///
     /// Same as calling [`new_sound_with_group(G::default(), source)`](Self::new_sound_with_group).
     ///
-    /// The added sound is started in stopped state, and [`play`](Sound::play) must be called to start playing
-    /// it.
-    ///
-    /// Return a `Err` if the number of channels doesn't match the output number of channels. If
-    /// the ouput number of channels is 1, or the number of channels of `source` is 1, `source`
-    /// will be automatic wrapped in a [`ChannelConverter`]. If the `sample_rate` of `source`
-    /// mismatch the output `sample_rate`, `source` will be wrapped in a [`SampleRateConverter`].
+    /// See [Self::new_sound_with_group], for more information.
     pub fn new_sound<T: SoundSource + Send + 'static>(
         &self,
         source: T,
