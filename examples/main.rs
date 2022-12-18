@@ -2,6 +2,8 @@ use audio_engine::{AudioEngine, OggDecoder, WavDecoder};
 use std::io::Cursor;
 
 fn main() {
+    env_logger::init();
+
     let engine = AudioEngine::new().unwrap();
     let mut sounds = [
         engine
