@@ -33,10 +33,11 @@ impl<T: Seek + Read + Send + 'static> WavDecoder<T> {
                     Ok(x) => to_i16(x),
                     Err(err) => {
                         log::error!("error while decoding wav: {}", err);
-                        // Return the current number of decoded samples before the error,
-                        // indicating that the SoundSource finished. If this SoundSource was marked
-                        // to loop, then this Error will repeat indefinitely. Maybe there should be
-                        // a mechanism to report errors from a SoundSource.
+                        // Returning the current number of decoded samples before the error,
+                        // indicating that the SoundSource finished.
+                        // FIXME: If this SoundSource was marked to loop, then this Error will
+                        // repeat indefinitely. Maybe there should be a mechanism to report errors
+                        // from a SoundSource.
                         return i;
                     }
                 }
