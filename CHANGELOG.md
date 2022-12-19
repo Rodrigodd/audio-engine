@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+# [0.4.5] - Unreleased
+
+### Fixed
+
+- Make `ChannelConverter` don't panic when the number of channels of input and
+  output were both not 1.
+- Fixed #7: `stop()` was not working when all sounds were playing.
+
+# [0.4.4] - 2022-10-11
+
+*Should have included the fix for #7, but because of a confusion with git, the
+fix as not included in the publication of this version. This version is
+identical to the previous.*
+
 # [0.4.3] - 2022-10-11
 
 ### Changed
