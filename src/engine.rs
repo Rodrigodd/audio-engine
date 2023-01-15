@@ -172,7 +172,7 @@ mod backend {
 /// [`set_group_volume`](AudioEngine::set_group_volume), to allow mixing multiple sounds together.
 pub struct AudioEngine<G: Eq + Hash + Send + 'static = ()> {
     mixer: Arc<Mutex<Mixer<G>>>,
-    _backend: Backend,
+    _backend: crate::unshared::Unshared<Backend>,
 }
 impl<G: Default + Eq + Hash + Send> AudioEngine<G> {
     /// Add a new Sound in the default Group.
@@ -233,7 +233,7 @@ impl AudioEngine {
 
         Ok(AudioEngine::<G> {
             mixer,
-            _backend: backend,
+            _backend: crate::unshared::Unshared::new(backend),
         })
     }
 }
@@ -245,8 +245,8 @@ impl<G: Eq + Hash + Send> AudioEngine<G> {
     /// start in the "supended" state. To resume the `AudioContext`, `AudioContext.resume()` must be
     /// called.
     #[cfg(target_arch = "wasm32")]
-    pub fn resume(&self) {
-        self._backend.resume()
+    pub fn resume(&mut self) {
+        self._backend.get_mut().resume()
     }
 
     /// The sample rate that is currently being outputed to the device.
@@ -428,4 +428,9 @@ where
         },
         error_callback,
     )
+}
+
+fn _assert_sync() {
+    fn is_sync<T: Sync>() {}
+    is_sync::<AudioEngine>();
 }

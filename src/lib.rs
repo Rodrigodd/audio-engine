@@ -24,6 +24,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+mod unshared;
+
 pub mod converter;
 mod sine;
 
